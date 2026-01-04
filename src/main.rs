@@ -34,6 +34,37 @@ use tmux::{
 	send_keys, send_special_key, session_path, start_session, start_session_with_mise,
 };
 
+// Embedded hooks - compiled into binary for distribution
+const HOOK_DONE: &str = include_str!("../hooks/done.md");
+const HOOK_INTERVIEW: &str = include_str!("../hooks/interview.md");
+const HOOK_LOG: &str = include_str!("../hooks/log.md");
+const HOOK_POLL_PR: &str = include_str!("../hooks/poll-pr.md");
+const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
+
+/// Install Claude hooks to ~/.claude/commands/
+fn install_hooks() -> Result<()> {
+	let commands_dir = dirs::home_dir()
+		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+		.join(".claude")
+		.join("commands");
+	fs::create_dir_all(&commands_dir)?;
+
+	let hooks = [
+		("done.md", HOOK_DONE),
+		("interview.md", HOOK_INTERVIEW),
+		("log.md", HOOK_LOG),
+		("poll-pr.md", HOOK_POLL_PR),
+		("qa-swarm.md", HOOK_QA_SWARM),
+	];
+
+	for (name, content) in hooks {
+		let path = commands_dir.join(name);
+		fs::write(&path, content)?;
+	}
+
+	Ok(())
+}
+
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "whopio/swarm";
 
@@ -415,14 +446,13 @@ fn handle_new(
 
 	// Build Claude flags:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
-	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
+	// - Normal mode: --permission-mode acceptEdits (auto-accepts file edits, still prompts for bash)
 	let claude_flags = if auto_accept && agent == "claude" {
-		" --dangerously-skip-permissions".to_string()
+		" --dangerously-skip-permissions"
 	} else if agent == "claude" {
-		let allowed_tools = format_allowed_tools(&cfg.allowed_tools.tools);
-		format!(" --permission-mode acceptEdits {}", allowed_tools)
+		" --permission-mode acceptEdits"
 	} else {
-		String::new()
+		""
 	};
 
 	let command = match (agent.as_str(), &initial_prompt) {
@@ -462,18 +492,6 @@ fn handle_new(
 		);
 	}
 	Ok(())
-}
-
-/// Formats the allowed tools list as CLI flags for Claude Code.
-fn format_allowed_tools(tools: &[String]) -> String {
-	if tools.is_empty() {
-		return String::new();
-	}
-	tools
-		.iter()
-		.map(|t| format!("--allowedTools \"{}\"", t))
-		.collect::<Vec<_>>()
-		.join(" ")
 }
 
 fn resolve_repo_path(input: &str) -> Result<PathBuf> {
@@ -748,6 +766,8 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	tasks_state.select(Some(0));
 	let mut showing_tasks = false;
 	let mut show_help = false;
+	// First-run hooks install prompt
+	let mut show_hooks_prompt = !cfg.general.hooks_installed;
 	// Auto-update on startup (checks once per day, shows "Just updated!" if we updated last run)
 	let just_updated = auto_update_on_startup();
 	let mut last_refresh = Instant::now();
@@ -1162,12 +1182,70 @@ Tab to switch fields, Enter to start, Esc to cancel"#,
 				f.render_widget(overlay, area);
 			}
 
+			// First-run hooks install prompt
+			if show_hooks_prompt {
+				let area = centered_rect(60, 50, size);
+				let clear = ratatui::widgets::Clear;
+				f.render_widget(clear, area);
+				let body = r#"Welcome to swarm!
+
+swarm comes with Claude commands that help you
+work more effectively with AI coding agents:
+
+  /done       - End session, log work
+  /interview  - Detailed task planning
+  /log        - Save progress to task file
+  /poll-pr    - Monitor PR until CI green
+
+Install these commands to ~/.claude/commands/?
+
+  [y] Yes, install (recommended)
+  [n] No thanks"#;
+				let overlay = Paragraph::new(body)
+					.block(
+						Block::default()
+							.borders(Borders::ALL)
+							.title("Setup")
+							.border_style(Style::default().fg(Color::Green))
+							.title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+					)
+					.wrap(Wrap { trim: true });
+				f.render_widget(overlay, area);
+			}
 		})?;
 
 		if event::poll(Duration::from_millis(100))? {
 			if let Event::Key(key) = event::read()? {
 				if key.kind == KeyEventKind::Press {
 					if show_help && key.code != KeyCode::Char('?') && key.code != KeyCode::Esc {
+						continue;
+					}
+					// Handle first-run hooks prompt
+					if show_hooks_prompt {
+						match key.code {
+							KeyCode::Char('y') | KeyCode::Char('Y') => {
+								if let Err(e) = install_hooks() {
+									status_message = Some((
+										format!("Failed to install hooks: {}", e),
+										Instant::now(),
+									));
+								} else {
+									status_message = Some((
+										"Hooks installed! Use /done, /interview, /log in Claude".to_string(),
+										Instant::now(),
+									));
+								}
+								cfg.general.hooks_installed = true;
+								let _ = config::save_config(cfg);
+								show_hooks_prompt = false;
+							}
+							KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+								cfg.general.hooks_installed = true; // Mark as prompted, don't ask again
+								let _ = config::save_config(cfg);
+								show_hooks_prompt = false;
+							}
+							_ => {}
+						}
 						continue;
 					}
 					// Handle send-input mode first to capture typing.
@@ -1927,23 +2005,6 @@ fn format_human_duration(d: Duration) -> String {
 }
 
 fn agent_details(sel: &AgentSession) -> String {
-	let status = match sel.status {
-		AgentStatus::NeedsInput => "Needs input",
-		AgentStatus::Running => "Running",
-		AgentStatus::Idle => "Idle",
-		AgentStatus::Done => "Done",
-		AgentStatus::Unknown => "Unknown",
-	};
-	let last_output = sel
-		.last_output
-		.and_then(|t| SystemTime::now().duration_since(t).ok())
-		.map(format_human_duration)
-		.unwrap_or_else(|| "unknown".to_string());
-	let task_title = sel
-		.task
-		.as_ref()
-		.map(|t| t.title.clone())
-		.unwrap_or_else(|| "None".to_string());
 	let task_path = sel
 		.task
 		.as_ref()
@@ -1953,11 +2014,10 @@ fn agent_details(sel: &AgentSession) -> String {
 		.ok()
 		.flatten()
 		.unwrap_or_else(|| "-".to_string());
-	// Command another Claude can use to read this agent's output
 	let read_cmd = format!("tmux capture-pane -p -S -500 -t {}", sel.session_name);
 	format!(
-		"Name: {}\nStatus: {}\nLast output: {}\nTask: {}\nTask path: {}\nRepo: {}\n\nTo read from another Claude:\n{}",
-		sel.name, status, last_output, task_title, task_path, repo_path, read_cmd
+		"Task: {}\nRepo: {}\n\nRead from another Claude:\n{}",
+		task_path, repo_path, read_cmd
 	)
 }
 
@@ -1988,6 +2048,11 @@ Tasks view:
   x         delete task
   Esc       back to agents
   q         quit
+
+Claude commands (run inside agent):
+  /done       end session, log work
+  /log        save progress to task file
+  /interview  detailed task planning
 
 tmux (when attached):
   Ctrl-b d  detach (return to swarm)
@@ -2126,7 +2191,7 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool) -> R
 		session_name.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		true, // always use worktrees for TUI-started tasks
+		false,
 		Some(prompt),
 		Some(task.path.to_string_lossy().into_owned()),
 		auto_accept,
