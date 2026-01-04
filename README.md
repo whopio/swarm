@@ -31,14 +31,17 @@ swarm update
 ## Screenshot
 
 ```
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ Agents (2 need input)                                                        │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  1 ● auth-bug           [WAIT] Should I proceed with...                      │
-│  2   api-refactor       Running tests...                                     │
-│  3 ● payment-flow       [WAIT] Which approach do you...                      │
-│  4   docs-update        Writing documentation...                             │
-╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Agents (2 need input) ─────────────╮╭─ Preview ──────────────────────────╮
+│  1 ● auth-bug         [WAIT] Sho...││ I've analyzed the authentication   │
+│  2 ▶ api-refactor     Running te...││ code and found the issue. The      │
+│  3 ● payment-flow     [WAIT] Whi...││ session token wasn't being...      │
+│  4 ▶ docs-update      Writing do...││                                    │
+│                                     ││ Should I proceed with the fix?     │
+│                                     │├─ Details ──────────────────────────┤
+│                                     ││ Task: ~/.swarm/tasks/auth-bug.md   │
+│                                     ││ Repo: ~/code/myproject             │
+╰─────────────────────────────────────╯╰─────────────────────────────────────╯
+ Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | h | q
 ```
 
 ## Features
