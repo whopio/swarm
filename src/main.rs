@@ -446,13 +446,14 @@ fn handle_new(
 
 	// Build Claude flags:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
-	// - Normal mode: --permission-mode acceptEdits (auto-accepts file edits, still prompts for bash)
+	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
 	let claude_flags = if auto_accept && agent == "claude" {
-		" --dangerously-skip-permissions"
+		" --dangerously-skip-permissions".to_string()
 	} else if agent == "claude" {
-		" --permission-mode acceptEdits"
+		let allowed_tools = format_allowed_tools(&cfg.allowed_tools.tools);
+		format!(" --permission-mode acceptEdits {}", allowed_tools)
 	} else {
-		""
+		String::new()
 	};
 
 	let command = match (agent.as_str(), &initial_prompt) {
@@ -492,6 +493,18 @@ fn handle_new(
 		);
 	}
 	Ok(())
+}
+
+/// Formats the allowed tools list as CLI flags for Claude Code.
+fn format_allowed_tools(tools: &[String]) -> String {
+	if tools.is_empty() {
+		return String::new();
+	}
+	tools
+		.iter()
+		.map(|t| format!("--allowedTools \"{}\"", t))
+		.collect::<Vec<_>>()
+		.join(" ")
 }
 
 fn resolve_repo_path(input: &str) -> Result<PathBuf> {

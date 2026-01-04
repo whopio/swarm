@@ -31,6 +31,8 @@ pub struct Config {
 	pub general: General,
 	pub notifications: Notifications,
 	pub keybindings: Keybindings,
+	#[serde(default)]
+	pub allowed_tools: AllowedTools,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +49,8 @@ pub struct General {
 	pub branch_prefix: String,
 	#[serde(default = "default_status_style")]
 	pub status_style: String, // "emoji", "unicode", "text"
+	#[serde(default)]
+	pub hooks_installed: bool, // Track if we've installed Claude hooks
 }
 
 fn default_status_style() -> String {
@@ -68,6 +72,89 @@ pub struct Notifications {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keybindings {
 	pub prefix: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AllowedTools {
+	#[serde(default = "default_allowed_tools")]
+	pub tools: Vec<String>,
+}
+
+fn default_allowed_tools() -> Vec<String> {
+	vec![
+		// Navigation & filesystem (read-only)
+		"Bash(cd:*)".into(),
+		"Bash(ls:*)".into(),
+		"Bash(pwd:*)".into(),
+		"Bash(cat:*)".into(),
+		"Bash(head:*)".into(),
+		"Bash(tail:*)".into(),
+		"Bash(less:*)".into(),
+		"Bash(file:*)".into(),
+		"Bash(find:*)".into(),
+		"Bash(which:*)".into(),
+		"Bash(type:*)".into(),
+		"Bash(wc:*)".into(),
+		"Bash(du:*)".into(),
+		"Bash(df:*)".into(),
+		"Bash(tree:*)".into(),
+		// Git (read-only)
+		"Bash(git status:*)".into(),
+		"Bash(git log:*)".into(),
+		"Bash(git diff:*)".into(),
+		"Bash(git show:*)".into(),
+		"Bash(git branch:*)".into(),
+		"Bash(git remote:*)".into(),
+		"Bash(git stash list:*)".into(),
+		"Bash(git rev-parse:*)".into(),
+		"Bash(git describe:*)".into(),
+		"Bash(git config --get:*)".into(),
+		"Bash(git ls-files:*)".into(),
+		"Bash(git ls-tree:*)".into(),
+		// GitHub CLI (read-only)
+		"Bash(gh pr view:*)".into(),
+		"Bash(gh pr list:*)".into(),
+		"Bash(gh pr diff:*)".into(),
+		"Bash(gh pr checks:*)".into(),
+		"Bash(gh issue view:*)".into(),
+		"Bash(gh issue list:*)".into(),
+		"Bash(gh api:*)".into(),
+		"Bash(gh release list:*)".into(),
+		"Bash(gh release view:*)".into(),
+		// Package managers (read-only)
+		"Bash(npm list:*)".into(),
+		"Bash(npm ls:*)".into(),
+		"Bash(npm view:*)".into(),
+		"Bash(pnpm list:*)".into(),
+		"Bash(pnpm ls:*)".into(),
+		"Bash(yarn list:*)".into(),
+		"Bash(cargo tree:*)".into(),
+		"Bash(cargo metadata:*)".into(),
+		// Build & test
+		"Bash(cargo build:*)".into(),
+		"Bash(cargo check:*)".into(),
+		"Bash(cargo test:*)".into(),
+		"Bash(cargo clippy:*)".into(),
+		"Bash(cargo fmt --check:*)".into(),
+		"Bash(npm run:*)".into(),
+		"Bash(pnpm run:*)".into(),
+		"Bash(yarn run:*)".into(),
+		"Bash(make:*)".into(),
+		"Bash(go build:*)".into(),
+		"Bash(go test:*)".into(),
+		// Docker (read-only)
+		"Bash(docker ps:*)".into(),
+		"Bash(docker images:*)".into(),
+		"Bash(docker logs:*)".into(),
+		// Misc safe
+		"Bash(echo:*)".into(),
+		"Bash(date:*)".into(),
+		"Bash(env:*)".into(),
+		"Bash(printenv:*)".into(),
+		"Bash(grep:*)".into(),
+		"Bash(rg:*)".into(),
+		"Bash(ag:*)".into(),
+	]
 }
 
 pub fn load_or_init() -> Result<Config> {
@@ -156,3 +243,10 @@ pub fn snapshots_dir() -> Result<PathBuf> {
 	Ok(dir)
 }
 
+/// Save config back to file (for updating hooks_installed, etc.)
+pub fn save_config(cfg: &Config) -> Result<()> {
+	let config_path = base_dir()?.join("config.toml");
+	let content = toml::to_string_pretty(cfg)?;
+	fs::write(&config_path, content)?;
+	Ok(())
+}

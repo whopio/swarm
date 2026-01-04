@@ -27,7 +27,13 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(git fetch:*)",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr list:*)",
+      "Bash(git -C /Users/jacksharkey/Documents/swarm show HEAD:hooks/done.md)",
+      "Bash(xargs -I{} sh -c 'echo \"\"=== {} ===\"\" && head -20 \"\"{}\"\"')"
     ]
   }
 }
