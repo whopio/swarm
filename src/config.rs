@@ -47,8 +47,6 @@ pub struct General {
 	pub branch_prefix: String,
 	#[serde(default = "default_status_style")]
 	pub status_style: String, // "emoji", "unicode", "text"
-	#[serde(default)]
-	pub hooks_installed: bool, // Track if we've installed Claude hooks
 }
 
 fn default_status_style() -> String {
@@ -158,10 +156,3 @@ pub fn snapshots_dir() -> Result<PathBuf> {
 	Ok(dir)
 }
 
-/// Save config back to file (for updating hooks_installed, etc.)
-pub fn save_config(cfg: &Config) -> Result<()> {
-	let config_path = base_dir()?.join("config.toml");
-	let content = toml::to_string_pretty(cfg)?;
-	fs::write(&config_path, content)?;
-	Ok(())
-}

@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh release list:*)",
+      "Bash(cargo build:*)",
+      "Bash(swarm --version:*)",
+      "Bash(swarm --help:*)",
+      "Bash(gh release edit:*)",
+      "Bash(swarm update:*)",
+      "Bash(cargo install:*)",
+      "Bash(gh release view:*)",
+      "Bash(gh release upload:*)",
+      "Bash(gh api:*)",
+      "Bash(cat:*)",
+      "Bash(GH_DEBUG=1 gh release upload:*)",
+      "Bash(jobs:*)",
+      "Bash(pkill:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(git -C /Users/jacksharkey/Documents/whop-monorepo-ci-fullstack-prs add internal-docs/engineering/development/pull-requests.mdx)",
+      "Bash(git -C /Users/jacksharkey/Documents/whop-monorepo-ci-fullstack-prs commit -m \"Add Vercel preview limitation to internal docs\")",
+      "Bash(git -C /Users/jacksharkey/Documents/whop-monorepo-ci-fullstack-prs push)",
+      "Bash(rm:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

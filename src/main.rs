@@ -31,39 +31,8 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 use tmux::{
 	SWARM_PREFIX, capture_tail, ensure_pipe, kill_session, list_sessions, pane_last_used,
-	send_keys, session_path, start_session, start_session_with_mise,
+	send_keys, send_special_key, session_path, start_session, start_session_with_mise,
 };
-
-// Embedded hooks - compiled into binary for distribution
-const HOOK_DONE: &str = include_str!("../hooks/done.md");
-const HOOK_INTERVIEW: &str = include_str!("../hooks/interview.md");
-const HOOK_LOG: &str = include_str!("../hooks/log.md");
-const HOOK_POLL_PR: &str = include_str!("../hooks/poll-pr.md");
-const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
-
-/// Install Claude hooks to ~/.claude/commands/
-fn install_hooks() -> Result<()> {
-	let commands_dir = dirs::home_dir()
-		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
-		.join(".claude")
-		.join("commands");
-	fs::create_dir_all(&commands_dir)?;
-
-	let hooks = [
-		("done.md", HOOK_DONE),
-		("interview.md", HOOK_INTERVIEW),
-		("log.md", HOOK_LOG),
-		("poll-pr.md", HOOK_POLL_PR),
-		("qa-swarm.md", HOOK_QA_SWARM),
-	];
-
-	for (name, content) in hooks {
-		let path = commands_dir.join(name);
-		fs::write(&path, content)?;
-	}
-
-	Ok(())
-}
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "whopio/swarm";
@@ -168,26 +137,61 @@ fn check_and_install_update() -> Result<()> {
 	Ok(())
 }
 
-/// Check for updates in background (non-blocking, for TUI startup)
-fn check_update_notification() -> Option<String> {
+/// Auto-update on startup (runs in background, once per day)
+/// Returns Some(version) if we just updated on a previous run
+fn auto_update_on_startup() -> Option<String> {
+	let swarm_dir = dirs::home_dir()?.join(".swarm");
+	let just_updated_file = swarm_dir.join(".just-updated");
+	let last_check_file = swarm_dir.join(".last-update-check");
+
+	// Check if we just updated (on a previous run)
+	if let Ok(version) = fs::read_to_string(&just_updated_file) {
+		let _ = fs::remove_file(&just_updated_file);
+		return Some(version);
+	}
+
 	// Only check once per day
-	let cache_file = dirs::home_dir()?.join(".swarm").join(".update-check");
-	if let Ok(metadata) = fs::metadata(&cache_file) {
+	if let Ok(metadata) = fs::metadata(&last_check_file) {
 		if let Ok(modified) = metadata.modified() {
 			if modified.elapsed().ok()? < Duration::from_secs(86400) {
-				// Read cached result
-				return fs::read_to_string(&cache_file).ok().filter(|s| !s.is_empty());
+				return None;
 			}
 		}
 	}
 
-	// Check in background thread to not block TUI
+	// Check and auto-update in background thread
 	std::thread::spawn(move || {
-		if let Ok(Some((version, _))) = check_for_update() {
-			let _ = fs::create_dir_all(dirs::home_dir().unwrap().join(".swarm"));
-			let _ = fs::write(&cache_file, format!("v{}", version));
-		} else {
-			let _ = fs::write(&cache_file, "");
+		let _ = fs::create_dir_all(&swarm_dir);
+		let _ = fs::write(&last_check_file, "");
+
+		if let Ok(Some((version, url))) = check_for_update() {
+			// Download update
+			let client = reqwest::blocking::Client::builder()
+				.user_agent("swarm-updater")
+				.build();
+
+			if let Ok(client) = client {
+				if let Ok(response) = client.get(&url).send() {
+					if response.status().is_success() {
+						if let Ok(bytes) = response.bytes() {
+							let temp_path = std::env::temp_dir().join("swarm-update");
+							if fs::write(&temp_path, &bytes).is_ok() {
+								#[cfg(unix)]
+								{
+									use std::os::unix::fs::PermissionsExt;
+									let _ = fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o755));
+								}
+
+								if self_replace::self_replace(&temp_path).is_ok() {
+									let _ = fs::remove_file(&temp_path);
+									// Mark that we updated - will show on next run
+									let _ = fs::write(&just_updated_file, format!("v{}", version));
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	});
 
@@ -409,18 +413,22 @@ fn handle_new(
 		prompt.clone()
 	};
 
-	// Build command with auto-accept flag if requested
-	let auto_accept_flag = if auto_accept && agent == "claude" {
+	// Build Claude flags:
+	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
+	// - Normal mode: --permission-mode acceptEdits (auto-accepts file edits, still prompts for bash)
+	let claude_flags = if auto_accept && agent == "claude" {
 		" --dangerously-skip-permissions"
+	} else if agent == "claude" {
+		" --permission-mode acceptEdits"
 	} else {
 		""
 	};
 
 	let command = match (agent.as_str(), &initial_prompt) {
 		("claude", Some(p)) => {
-			format!("claude{} \"{}\"", auto_accept_flag, p.replace('"', "\\\""))
+			format!("claude{} \"{}\"", claude_flags, p.replace('"', "\\\""))
 		}
-		("claude", None) => format!("claude{}", auto_accept_flag),
+		("claude", None) => format!("claude{}", claude_flags),
 		("codex", Some(p)) => format!("codex \"{}\"", p.replace('"', "\\\"")),
 		("codex", None) => "codex".to_string(),
 		(other, Some(p)) => format!("{} \"{}\"", other, p.replace('"', "\\\"")),
@@ -727,10 +735,8 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	tasks_state.select(Some(0));
 	let mut showing_tasks = false;
 	let mut show_help = false;
-	// First-run hooks install prompt
-	let mut show_hooks_prompt = !cfg.general.hooks_installed;
-	// Check for updates in background
-	let update_available = check_update_notification();
+	// Auto-update on startup (checks once per day, shows "Just updated!" if we updated last run)
+	let just_updated = auto_update_on_startup();
 	let mut last_refresh = Instant::now();
 	let mut status_message: Option<(String, Instant)> = None;
 	let mut send_input_mode = false;
@@ -901,9 +907,9 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 				} else {
 					"Agents".to_string()
 				};
-				// Show update notification in header
-				if let Some(ref version) = update_available {
-					agents_title = format!("{} │ Update available: {} (run: swarm update)", agents_title, version);
+				// Show "Just updated!" notification in header
+				if let Some(ref version) = just_updated {
+					agents_title = format!("{} │ ✨ Just updated to {}!", agents_title, version);
 				}
 
 				let list = List::new(items)
@@ -922,7 +928,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.split(chunks[1]);
 
 				// Use cached preview instead of calling tmux on every frame
-				let (preview_lines_styled, preview_len, details_text, is_yolo_selected) =
+				let (preview_lines_styled, details_text, is_yolo_selected) =
 					if let Some(sel) = sessions.get(selected) {
 						let preview_lines = cached_preview
 							.as_ref()
@@ -956,12 +962,11 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 							}
 						}
 
-						let extra_lines = if sel.is_yolo { 4 } else { 0 };
 						let mut details = agent_details(sel);
 						if let Some(pipe_msg) = pipe_status.get(&sel.session_name) {
 							details.push_str(&format!("\nPipe: {pipe_msg}"));
 						}
-						(styled_lines, cleaned.len() + extra_lines, details, sel.is_yolo)
+						(styled_lines, details, sel.is_yolo)
 					} else if sessions.is_empty() {
 						// Show helpful hint when no agents exist
 						(
@@ -975,21 +980,16 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 								Line::from("Press n to create a new agent"),
 								Line::from("Press t to see saved tasks"),
 							],
-							5,
 							String::from("Get started by creating a new agent or selecting an existing task."),
 							false,
 						)
 					} else {
 						(
 							vec![Line::from("No session selected")],
-							0,
 							String::from("No details available"),
 							false,
 						)
 					};
-
-				let preview_height = right_panes[0].height.saturating_sub(2) as usize;
-				let scroll_offset = preview_len.saturating_sub(preview_height);
 
 				let preview_block = if is_yolo_selected {
 					Block::default()
@@ -1001,10 +1001,17 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					Block::default().borders(Borders::ALL).title("Preview")
 				};
 
+				// Create paragraph with wrapping to calculate actual visual line count
 				let preview = Paragraph::new(Text::from(preview_lines_styled))
 					.block(preview_block)
-					.wrap(Wrap { trim: true })
-					.scroll((scroll_offset as u16, 0));
+					.wrap(Wrap { trim: true });
+
+				// Calculate scroll offset using actual wrapped line count
+				let preview_height = right_panes[0].height.saturating_sub(2) as usize;
+				let visual_line_count = preview.line_count(right_panes[0].width.saturating_sub(2));
+				let scroll_offset = visual_line_count.saturating_sub(preview_height);
+
+				let preview = preview.scroll((scroll_offset as u16, 0));
 				f.render_widget(preview, right_panes[0]);
 
 				let details = Paragraph::new(details_text)
@@ -1142,70 +1149,12 @@ Tab to switch fields, Enter to start, Esc to cancel"#,
 				f.render_widget(overlay, area);
 			}
 
-			// First-run hooks install prompt
-			if show_hooks_prompt {
-				let area = centered_rect(60, 50, size);
-				let clear = ratatui::widgets::Clear;
-				f.render_widget(clear, area);
-				let body = r#"Welcome to swarm!
-
-swarm comes with Claude commands that help you
-work more effectively with AI coding agents:
-
-  /done       - End session, log work
-  /interview  - Detailed task planning
-  /log        - Save progress to task file
-  /poll-pr    - Monitor PR until CI green
-
-Install these commands to ~/.claude/commands/?
-
-  [y] Yes, install (recommended)
-  [n] No thanks"#;
-				let overlay = Paragraph::new(body)
-					.block(
-						Block::default()
-							.borders(Borders::ALL)
-							.title("Setup")
-							.border_style(Style::default().fg(Color::Green))
-							.title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-					)
-					.wrap(Wrap { trim: true });
-				f.render_widget(overlay, area);
-			}
 		})?;
 
 		if event::poll(Duration::from_millis(100))? {
 			if let Event::Key(key) = event::read()? {
 				if key.kind == KeyEventKind::Press {
 					if show_help && key.code != KeyCode::Char('?') && key.code != KeyCode::Esc {
-						continue;
-					}
-					// Handle first-run hooks prompt
-					if show_hooks_prompt {
-						match key.code {
-							KeyCode::Char('y') | KeyCode::Char('Y') => {
-								if let Err(e) = install_hooks() {
-									status_message = Some((
-										format!("Failed to install hooks: {}", e),
-										Instant::now(),
-									));
-								} else {
-									status_message = Some((
-										"Hooks installed! Use /done, /interview, /log in Claude".to_string(),
-										Instant::now(),
-									));
-								}
-								cfg.general.hooks_installed = true;
-								let _ = config::save_config(cfg);
-								show_hooks_prompt = false;
-							}
-							KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-								cfg.general.hooks_installed = true; // Mark as prompted, don't ask again
-								let _ = config::save_config(cfg);
-								show_hooks_prompt = false;
-							}
-							_ => {}
-						}
 						continue;
 					}
 					// Handle send-input mode first to capture typing.
@@ -1647,6 +1596,27 @@ Install these commands to ~/.claude/commands/?
 								}
 							}
 						}
+						KeyCode::BackTab
+							if !showing_tasks && !send_input_mode =>
+						{
+							// Send Shift+Tab to cycle Claude Code modes (plan → standard → auto-accept)
+							if let Some(sel) = sessions.get(selected) {
+								match send_special_key(&sel.session_name, "BTab") {
+									Ok(()) => {
+										status_message = Some((
+											format!("Sent Shift+Tab to {} (cycle mode)", sel.name),
+											Instant::now(),
+										));
+									}
+									Err(e) => {
+										status_message = Some((
+											format!("Failed to send Shift+Tab: {}", e),
+											Instant::now(),
+										));
+									}
+								}
+							}
+						}
 						KeyCode::Char('s')
 							if !showing_tasks && !send_input_mode =>
 						{
@@ -1730,9 +1700,9 @@ Install these commands to ~/.claude/commands/?
 
 fn agents_footer_text(width: u16) -> String {
 	if width < 100 {
-		"A: enter input | 1-9 nav | a attach | n | d | t tasks | s | h | q".to_string()
+		"A: enter | S-Tab mode | 1-9 | a | n | d | t | s | h | q".to_string()
 	} else {
-		"Agents: enter input | 1-9 nav | a attach | n new | d done | t tasks | s style | h help | q".to_string()
+		"Agents: enter input | S-Tab cycle mode | 1-9 nav | a attach | n new | d done | t tasks | s style | h | q".to_string()
 	}
 }
 
@@ -1978,13 +1948,14 @@ fn agent_details(sel: &AgentSession) -> String {
 
 fn help_text() -> String {
 	format!(
-		r#"╭─────────────────────────────────────╮
-│  SWARM - Herd your AI coding agents │
-│              v{:<22}│
-╰─────────────────────────────────────╯
+		r#"╭──────────────────────────────────────╮
+│  SWARM - Command your agent fleet   │
+│               v{:<22}│
+╰──────────────────────────────────────╯
 
 Agents view:
   enter     send input (quick reply)
+  S-Tab     cycle Claude mode (plan/std/auto)
   1-9       quick navigate
   a         attach (full tmux)
   n         new agent (creates task)
@@ -2002,11 +1973,6 @@ Tasks view:
   x         delete task
   Esc       back to agents
   q         quit
-
-Claude commands (run inside agent):
-  /done       end session, log work
-  /log        save progress to task file
-  /interview  detailed task planning
 
 tmux (when attached):
   Ctrl-b d  detach (return to swarm)

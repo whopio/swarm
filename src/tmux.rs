@@ -181,8 +181,7 @@ pub fn send_keys(session: &str, text: &str) -> Result<()> {
 	Ok(())
 }
 
-/// Send a special key like "S-Tab" (Shift+Tab), "C-c" (Ctrl+C), etc.
-#[allow(dead_code)]
+/// Send a special key like "BTab" (Shift+Tab), "C-c" (Ctrl+C), etc.
 pub fn send_special_key(session: &str, key: &str) -> Result<()> {
 	let status = Command::new("tmux")
 		.arg("send-keys")

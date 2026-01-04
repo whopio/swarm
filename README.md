@@ -17,11 +17,12 @@ Terminal dashboard for managing multiple AI coding agents in parallel. See who n
 
 ## Features
 
-- **Dashboard view** - See all your AI agents at a glance
-- **Needs input detection** - Instantly see which agents are waiting for you
+- **Needs input detection** - Instantly see which agents are waiting for you (● red indicator)
+- **Desktop notifications** - Get notified when agents need input, even when swarm is in the background
 - **Quick reply** - Send input without leaving the dashboard (Enter key)
+- **Dashboard view** - See all your AI agents at a glance with live status
 - **Task tracking** - Associate agents with task files for context persistence
-- **Auto-updates** - Run `swarm update` to get the latest version
+- **Auto-updates** - Checks daily and updates automatically on startup
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Claude hooks** - Built-in slash commands (/done, /log, /interview)
 
@@ -34,13 +35,6 @@ cargo install --git https://github.com/whopio/swarm
 ```
 
 After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your PATH).
-
-### Homebrew (coming soon)
-
-```bash
-brew tap whopio/tap
-brew install swarm
-```
 
 ## Quick Start
 
@@ -100,13 +94,13 @@ Sessions are linked to task files in `~/.swarm/tasks/` for context persistence a
 
 ## Updating
 
-Swarm checks for updates daily and shows a notification in the TUI header when a new version is available. To update:
+Swarm auto-updates in the background. On startup, it checks for updates once per day and installs them automatically. You'll see "✨ Just updated to vX.X.X!" in the header after an update.
+
+To manually check/update:
 
 ```bash
 swarm update
 ```
-
-This downloads the latest release and replaces your binary automatically.
 
 ## Configuration
 
