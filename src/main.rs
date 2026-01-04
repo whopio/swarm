@@ -1731,6 +1731,19 @@ Install these commands to ~/.claude/commands/?
 								Instant::now(),
 							));
 						}
+						KeyCode::Char('c')
+							if !showing_tasks && !send_input_mode =>
+						{
+							// Open config file in Cursor
+							let config_path = config::base_dir()
+								.map(|p| p.join("config.toml"))
+								.unwrap_or_default();
+							let _ = Command::new("cursor").arg(&config_path).status();
+							status_message = Some((
+								format!("Opened {} in Cursor", config_path.display()),
+								Instant::now(),
+							));
+						}
 							_ => {}
 					}
 				}
@@ -1804,9 +1817,9 @@ Install these commands to ~/.claude/commands/?
 
 fn agents_footer_text(width: u16) -> String {
 	if width < 100 {
-		"A: enter | S-Tab mode | 1-9 | a | n | d | t | s | h | q".to_string()
+		"A: enter | S-Tab | 1-9 | a | n | d | t | s | c cfg | h | q".to_string()
 	} else {
-		"Agents: enter input | S-Tab cycle mode | 1-9 nav | a attach | n new | d done | t tasks | s style | h | q".to_string()
+		"Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | s style | c config | h | q".to_string()
 	}
 }
 
@@ -2050,6 +2063,7 @@ Agents view:
   d         done (kill session)
   t         tasks view
   s         cycle status style
+  c         open config in Cursor
   q         quit
 
 Tasks view:
@@ -2070,6 +2084,9 @@ Claude commands (run inside agent):
 tmux (when attached):
   Ctrl-b d  detach (return to swarm)
   Ctrl-b [  scroll mode (q to exit)
+
+Config: ~/.swarm/config.toml
+  [allowed_tools] - auto-accept safe commands
 
 ─────────────────────────────────────
 Built with 🧡 by Whop

@@ -59,12 +59,14 @@ swarm update
 | Key | Action |
 |-----|--------|
 | **Enter** | Send input to selected agent |
+| **Shift+Tab** | Cycle Claude mode (plan/standard/auto) |
 | **1-9** | Quick navigate to agent |
 | **a** | Attach (full tmux session) |
 | **n** | New agent with task |
 | **d** | Done (kill session) |
 | **t** | Switch to tasks view |
 | **s** | Cycle status style |
+| **c** | Open config in Cursor |
 | **h** | Help |
 | **q** | Quit |
 
@@ -110,13 +112,23 @@ Config file: `~/.swarm/config.toml`
 tasks_dir = "~/.swarm/tasks"
 daily_dir = "~/.swarm/daily"
 hooks_installed = true
+status_style = "unicode"  # unicode, emoji, or text
 
 [notifications]
 enabled = true
 
-[status_style]
-style = "unicode"  # unicode, emoji, or text
+# Auto-accept these commands without prompting (uses sensible defaults)
+# Customize by adding your own patterns:
+[allowed_tools]
+tools = [
+  "Bash(git status:*)",
+  "Bash(cargo build:*)",
+  "Bash(npm run:*)",
+  # Add more patterns here...
+]
 ```
+
+**Editing allowed_tools:** Open `~/.swarm/config.toml` and add/remove patterns in the `[allowed_tools]` section. Patterns use Claude Code's tool format: `Bash(command:*)` where `*` matches any arguments.
 
 ## Claude Hooks
 

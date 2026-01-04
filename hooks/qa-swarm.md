@@ -43,6 +43,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 | **d** | Done (kill session with confirmation) |
 | **t** | Switch to tasks view |
 | **s** | Cycle status style (emoji/unicode/text) |
+| **c** | Open config in Cursor |
 | **h** | Help modal |
 | **q** | Quit |
 | **Esc** | Close any modal |
@@ -164,6 +165,14 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 
 **Note:** This sends the actual Shift+Tab keystroke to Claude Code inside the tmux session.
 
+### Flow 10: Open Config (c key)
+**Scenario:** Quickly edit config from within swarm
+
+1. [ ] Press `c` from agents view
+2. [ ] Cursor opens `~/.swarm/config.toml`
+3. [ ] Status message shows "Opened ~/.swarm/config.toml in Cursor"
+4. [ ] Can edit allowed_tools, notifications, etc.
+
 ---
 
 ## Test Checklist
@@ -172,6 +181,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 - [ ] Numbers 1-9 shown next to agents for quick nav
 - [ ] Status indicators cycle with `s` key (3 styles: unicode/emoji/text)
 - [ ] Shift+Tab sends mode cycle keystroke to selected agent
+- [ ] `c` key opens config file in Cursor
 - [ ] Header shows "(N need input)" when any agents waiting
 - [ ] Preview shows live output (bottom-anchored)
 - [ ] Prompt lines highlighted in yellow/bold
