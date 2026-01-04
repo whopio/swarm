@@ -24,7 +24,7 @@ Terminal dashboard for managing multiple AI coding agents in parallel. See who n
 - **Task tracking** - Associate agents with task files for context persistence
 - **Auto-updates** - Checks daily and updates automatically on startup
 - **YOLO mode** - Auto-accept permissions for trusted tasks
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview)
+- **Shift+Tab** - Cycle Claude Code modes without attaching
 
 ## Install
 
@@ -60,6 +60,7 @@ swarm update
 | Key | Action |
 |-----|--------|
 | **Enter** | Send input to selected agent |
+| **Shift+Tab** | Cycle Claude mode (plan/standard/auto) |
 | **1-9** | Quick navigate to agent |
 | **a** | Attach (full tmux session) |
 | **n** | New agent with task |
@@ -81,16 +82,91 @@ swarm update
 | **x** | Delete task |
 | **Esc** | Back to agents |
 
-## How It Works
+## Architecture
 
-Swarm manages AI coding agents by:
+Swarm has **no database, no server, no daemon** - it's a single binary TUI that derives all state from tmux and the filesystem.
 
-1. Creating tmux sessions prefixed with `swarm-*`
-2. Monitoring session output for patterns like `[Y/n]`, `Should I`, etc.
-3. Displaying status indicators (● red = needs input, ● green = running)
-4. Allowing quick input without full terminal attachment
+### The Three Sources of Truth
 
-Sessions are linked to task files in `~/.swarm/tasks/` for context persistence across sessions.
+#### 1. tmux (Runtime State)
+tmux is the process manager. Each agent runs in a tmux session named `swarm-<name>`.
+
+```bash
+# Swarm queries tmux for:
+tmux list-sessions              # Discover active agents
+tmux capture-pane -p -t sess    # Get terminal output for preview
+tmux list-panes -F "#{pane_last_used}"  # Track activity time
+```
+
+#### 2. Session Metadata (`~/.swarm/sessions/<session-name>/`)
+```
+~/.swarm/sessions/swarm-fix-auth-bug/
+├── task      # Path to task file
+├── agent     # Agent type: "claude" or "codex"
+└── yolo      # Marker file if YOLO mode
+```
+
+#### 3. Task Files (`~/.swarm/tasks/*.md`)
+Markdown with YAML frontmatter - human readable, git-friendly:
+
+```markdown
+---
+status: in-progress
+due: 2026-01-05
+summary: Fix authentication bug
+---
+
+# Fix authentication bug
+
+## When done
+- @jack in slack
+
+## Process Log
+### 2026-01-04 14:30 - Investigation
+- Found root cause in auth.rs:142
+```
+
+### Status Detection
+
+Swarm doesn't hook into Claude - it **parses terminal output** with regex patterns:
+
+```
+needs_input = ["[Y/n]", "Do you want", "waiting for"]
+running = ["Running", "Thinking", "●"]
+done = ["Task completed", "finished"]
+```
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Swarm TUI                           │
+│  (ratatui + crossterm)                                  │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+           ┌───────────┴───────────┐
+           ▼                       ▼
+┌──────────────────┐      ┌───────────────────┐
+│   tmux sessions  │      │   File System     │
+│  (process state) │      │  (persistent)     │
+│                  │      │                   │
+│ • swarm-task-1   │      │ ~/.swarm/         │
+│ • swarm-task-2   │      │   ├── config.toml │
+│ • swarm-task-3   │      │   ├── sessions/   │
+└──────────────────┘      │   ├── tasks/      │
+                          │   └── logs/       │
+                          └───────────────────┘
+```
+
+### Design Principles
+
+| Decision | Rationale |
+|----------|-----------|
+| **No database** | Files are debuggable, backupable, git-friendly |
+| **tmux for processes** | Battle-tested, handles all terminal complexity |
+| **Polling not events** | Simple, reliable, no IPC complexity |
+| **Regex status detection** | Works with any agent without integration |
+| **Single binary** | `cargo install` and done, no dependencies |
 
 ## Updating
 
@@ -109,25 +185,15 @@ Config file: `~/.swarm/config.toml`
 ```toml
 [general]
 tasks_dir = "~/.swarm/tasks"
-daily_dir = "~/.swarm/daily"
-hooks_installed = true
+poll_interval_ms = 2000
+branch_prefix = "yourname/"
+default_agent = "claude"
 
 [notifications]
 enabled = true
-
-[status_style]
-style = "unicode"  # unicode, emoji, or text
+sound_needs_input = "Ping"
+sound_done = "Glass"
 ```
-
-## Claude Hooks
-
-Swarm includes Claude Code slash commands that work inside your agents:
-
-- **/done** - End session and log completed work
-- **/log** - Save progress to the linked task file
-- **/interview** - Detailed task planning before starting
-
-Hooks are installed to `~/.claude/commands/` on first run.
 
 ## Requirements
 
