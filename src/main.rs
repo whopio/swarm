@@ -2221,7 +2221,7 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool) -> R
 		session_name.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		false,
+		true, // Always use worktrees for TUI tasks (isolated git environment)
 		Some(prompt),
 		Some(task.path.to_string_lossy().into_owned()),
 		auto_accept,
