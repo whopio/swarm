@@ -24,6 +24,84 @@ sound_error = "Basso"
 
 [keybindings]
 prefix = "ctrl-a"
+
+# Bash commands that run without permission prompts in Claude Code
+# Format: "Bash(command:*)" where :* allows any arguments
+[allowed_tools]
+tools = [
+  # Navigation & filesystem (read-only)
+  "Bash(cd:*)",
+  "Bash(ls:*)",
+  "Bash(pwd:*)",
+  "Bash(cat:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+  "Bash(less:*)",
+  "Bash(file:*)",
+  "Bash(find:*)",
+  "Bash(which:*)",
+  "Bash(type:*)",
+  "Bash(wc:*)",
+  "Bash(du:*)",
+  "Bash(df:*)",
+  "Bash(tree:*)",
+  # Git (read-only)
+  "Bash(git status:*)",
+  "Bash(git log:*)",
+  "Bash(git diff:*)",
+  "Bash(git show:*)",
+  "Bash(git branch:*)",
+  "Bash(git remote:*)",
+  "Bash(git stash list:*)",
+  "Bash(git rev-parse:*)",
+  "Bash(git describe:*)",
+  "Bash(git config --get:*)",
+  "Bash(git ls-files:*)",
+  "Bash(git ls-tree:*)",
+  # GitHub CLI (read-only)
+  "Bash(gh pr view:*)",
+  "Bash(gh pr list:*)",
+  "Bash(gh pr diff:*)",
+  "Bash(gh pr checks:*)",
+  "Bash(gh issue view:*)",
+  "Bash(gh issue list:*)",
+  "Bash(gh api:*)",
+  "Bash(gh release list:*)",
+  "Bash(gh release view:*)",
+  # Package managers (read-only)
+  "Bash(npm list:*)",
+  "Bash(npm ls:*)",
+  "Bash(npm view:*)",
+  "Bash(pnpm list:*)",
+  "Bash(pnpm ls:*)",
+  "Bash(yarn list:*)",
+  "Bash(cargo tree:*)",
+  "Bash(cargo metadata:*)",
+  # Build & test
+  "Bash(cargo build:*)",
+  "Bash(cargo check:*)",
+  "Bash(cargo test:*)",
+  "Bash(cargo clippy:*)",
+  "Bash(cargo fmt --check:*)",
+  "Bash(npm run:*)",
+  "Bash(pnpm run:*)",
+  "Bash(yarn run:*)",
+  "Bash(make:*)",
+  "Bash(go build:*)",
+  "Bash(go test:*)",
+  # Docker (read-only)
+  "Bash(docker ps:*)",
+  "Bash(docker images:*)",
+  "Bash(docker logs:*)",
+  # Misc safe
+  "Bash(echo:*)",
+  "Bash(date:*)",
+  "Bash(env:*)",
+  "Bash(printenv:*)",
+  "Bash(grep:*)",
+  "Bash(rg:*)",
+  "Bash(ag:*)",
+]
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
