@@ -1951,6 +1951,8 @@ Install these commands to ~/.claude/commands/?
 						{
 							// Cycle through status indicator styles
 							style_idx = (style_idx + 1) % styles.len();
+							cfg.general.status_style = styles[style_idx].to_string();
+							let _ = config::save_config(cfg); // Save preference
 							status_message = Some((
 								format!("Status style: {}", styles[style_idx]),
 								Instant::now(),
