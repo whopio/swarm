@@ -2,12 +2,54 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const SWARM_PREFIX: &str = "swarm-";
 
+/// Common tmux installation paths
+const TMUX_PATHS: &[&str] = &[
+    "/opt/homebrew/bin/tmux",  // Apple Silicon Homebrew
+    "/usr/local/bin/tmux",     // Intel Homebrew
+    "/usr/bin/tmux",           // System
+    "/bin/tmux",               // Fallback
+];
+
+/// Cached tmux path - found once at startup
+static TMUX_PATH: OnceLock<String> = OnceLock::new();
+
+/// Find tmux binary, checking common locations if not in PATH
+pub fn find_tmux() -> &'static str {
+    TMUX_PATH.get_or_init(|| {
+        // First check if tmux is in PATH
+        if let Ok(output) = Command::new("which").arg("tmux").output() {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() && Path::new(&path).exists() {
+                    return path;
+                }
+            }
+        }
+
+        // Check common locations
+        for path in TMUX_PATHS {
+            if Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+
+        // Fallback to just "tmux" and hope for the best
+        "tmux".to_string()
+    })
+}
+
+/// Create a Command for tmux with the correct path
+fn tmux_cmd() -> Command {
+    Command::new(find_tmux())
+}
+
 pub fn list_sessions() -> Result<Vec<String>> {
-	let output = Command::new("tmux")
+	let output = tmux_cmd()
 		.arg("list-sessions")
 		.arg("-F")
 		.arg("#{session_name}")
@@ -16,7 +58,10 @@ pub fn list_sessions() -> Result<Vec<String>> {
 	let output = match output {
 		Ok(out) => out,
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-			return Err(anyhow::anyhow!("tmux not found on PATH"));
+			return Err(anyhow::anyhow!(
+				"tmux not found. Install with: brew install tmux\nSearched: {:?}",
+				TMUX_PATHS
+			));
 		}
 		Err(e) => return Err(e.into()),
 	};
@@ -49,7 +94,7 @@ pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
 			std::thread::sleep(Duration::from_millis(200));
 		}
 
-		let status = Command::new("tmux")
+		let status = tmux_cmd()
 			.arg("pipe-pane")
 			.arg("-t")
 			.arg(&target)
@@ -68,14 +113,16 @@ pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
 	}
 
 	Err(anyhow::anyhow!(
-		"tmux pipe-pane failed for session {} after 3 attempts: {}",
+		"tmux pipe-pane failed for session {} after 3 attempts: {} (tmux={}, target={})",
 		session,
-		last_error.unwrap_or_else(|| "unknown error".to_string())
+		last_error.unwrap_or_else(|| "unknown error".to_string()),
+		find_tmux(),
+		target
 	))
 }
 
 pub fn capture_tail(session: &str, lines: usize) -> Result<Vec<String>> {
-	let output = Command::new("tmux")
+	let output = tmux_cmd()
 		.arg("capture-pane")
 		.arg("-p")
 		.arg("-J")
@@ -98,7 +145,7 @@ pub fn capture_tail(session: &str, lines: usize) -> Result<Vec<String>> {
 }
 
 pub fn pane_last_used(session: &str) -> Result<Option<SystemTime>> {
-	let output = Command::new("tmux")
+	let output = tmux_cmd()
 		.arg("list-panes")
 		.arg("-t")
 		.arg(session)
@@ -145,7 +192,8 @@ fn start_session_with_options(
 		command.to_string()
 	};
 
-	let status = Command::new("tmux")
+	let tmux_bin = find_tmux();
+	let status = Command::new(tmux_bin)
 		.arg("new-session")
 		.arg("-d")
 		.arg("-s")
@@ -154,13 +202,14 @@ fn start_session_with_options(
 		.arg(dir)
 		.arg(&final_command)
 		.status()
-		.with_context(|| format!("failed to start tmux session {}", session))?;
+		.with_context(|| format!("failed to start tmux session {} (using {})", session, tmux_bin))?;
 
 	if !status.success() {
 		return Err(anyhow::anyhow!(
-			"tmux new-session failed for {} (status {})",
+			"tmux new-session failed for {} (status {}, tmux={})",
 			session,
-			status
+			status,
+			tmux_bin
 		));
 	}
 	Ok(())
@@ -168,7 +217,7 @@ fn start_session_with_options(
 
 pub fn send_keys(session: &str, text: &str) -> Result<()> {
 	// Send the text literally first
-	let status = Command::new("tmux")
+	let status = tmux_cmd()
 		.arg("send-keys")
 		.arg("-l") // literal mode - don't interpret special chars in text
 		.arg("-t")
@@ -181,7 +230,7 @@ pub fn send_keys(session: &str, text: &str) -> Result<()> {
 	}
 
 	// Then send Enter separately
-	let status = Command::new("tmux")
+	let status = tmux_cmd()
 		.arg("send-keys")
 		.arg("-t")
 		.arg(session)
@@ -199,7 +248,7 @@ pub fn send_keys(session: &str, text: &str) -> Result<()> {
 
 /// Send a special key like "BTab" (Shift+Tab), "C-c" (Ctrl+C), etc.
 pub fn send_special_key(session: &str, key: &str) -> Result<()> {
-	let status = Command::new("tmux")
+	let status = tmux_cmd()
 		.arg("send-keys")
 		.arg("-t")
 		.arg(session)
@@ -217,7 +266,7 @@ pub fn send_special_key(session: &str, key: &str) -> Result<()> {
 }
 
 pub fn kill_session(session: &str) -> Result<()> {
-	let status = Command::new("tmux")
+	let status = tmux_cmd()
 		.arg("kill-session")
 		.arg("-t")
 		.arg(session)
@@ -234,7 +283,7 @@ pub fn kill_session(session: &str) -> Result<()> {
 }
 
 pub fn session_path(session: &str) -> Result<Option<String>> {
-	let output = Command::new("tmux")
+	let output = tmux_cmd()
 		.arg("display-message")
 		.arg("-p")
 		.arg("-t")

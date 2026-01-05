@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 use tmux::{
-	SWARM_PREFIX, capture_tail, ensure_pipe, kill_session, list_sessions, pane_last_used,
+	SWARM_PREFIX, capture_tail, ensure_pipe, find_tmux, kill_session, list_sessions, pane_last_used,
 	send_keys, send_special_key, session_path, start_session, start_session_with_mise,
 };
 
@@ -2132,14 +2132,14 @@ fn attach_to(
 ) -> Result<()> {
 	// Leave TUI
 	teardown_terminal()?;
-	let status = Command::new("tmux")
+	let status = Command::new(find_tmux())
 		.arg("attach-session")
 		.arg("-t")
 		.arg(&sel.session_name)
 		.status()
 		.context("failed to attach to tmux session")?;
 	if !status.success() {
-		eprintln!("tmux attach failed: {}", status);
+		eprintln!("tmux attach failed: {} (using {})", status, find_tmux());
 	}
 	// Re-enter TUI
 	enable_raw_mode()?;
@@ -2380,7 +2380,7 @@ fn snapshot_session(session: &AgentSession) -> Result<String> {
 	let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
 	let filename = format!("{}-{}.log", session.session_name, ts);
 	let path = dir.join(filename);
-	let output = Command::new("tmux")
+	let output = Command::new(find_tmux())
 		.arg("capture-pane")
 		.arg("-p")
 		.arg("-J")
