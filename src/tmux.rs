@@ -163,11 +163,11 @@ pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
 	let cmd = format!("cat >> {}", log_path.to_string_lossy());
 	let target = format!("{session}:0.0");
 
-	// Retry logic - tmux server may need time to be ready after session creation
+	// Retry logic - tmux server may need a moment to be ready
 	let mut last_error = None;
 	for attempt in 0..3 {
 		if attempt > 0 {
-			std::thread::sleep(Duration::from_millis(200));
+			std::thread::sleep(Duration::from_millis(50));
 		}
 
 		let status = tmux_cmd()

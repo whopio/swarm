@@ -477,8 +477,8 @@ fn handle_new(
 		start_session(&session, &target_dir, &command)?;
 	}
 
-	// Delay to let tmux session initialize before setting up pipe
-	std::thread::sleep(std::time::Duration::from_millis(500));
+	// Small delay to let tmux session initialize before setting up pipe
+	std::thread::sleep(std::time::Duration::from_millis(100));
 
 	let log_path = Path::new(&cfg.general.logs_dir).join(format!("{session}.log"));
 	// Pipe setup is best-effort - session is already running
