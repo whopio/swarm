@@ -197,17 +197,28 @@ pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
 	))
 }
 
+#[allow(dead_code)]
 pub fn capture_tail(session: &str, lines: usize) -> Result<Vec<String>> {
-	let output = tmux_cmd()
-		.arg("capture-pane")
-		.arg("-p")
-		.arg("-J")
-		.arg("-t")
+	capture_tail_inner(session, lines, false)
+}
+
+/// Capture pane content with ANSI escape sequences preserved
+pub fn capture_tail_ansi(session: &str, lines: usize) -> Result<Vec<String>> {
+	capture_tail_inner(session, lines, true)
+}
+
+fn capture_tail_inner(session: &str, lines: usize, with_ansi: bool) -> Result<Vec<String>> {
+	let mut cmd = tmux_cmd();
+	cmd.arg("capture-pane").arg("-p").arg("-J");
+	if with_ansi {
+		cmd.arg("-e"); // Include escape sequences (for colors)
+	}
+	cmd.arg("-t")
 		.arg(format!("{session}:0.0"))
 		.arg("-S")
-		.arg(format!("-{}", lines as isize))
-		.output()
-		.context("failed to capture pane")?;
+		.arg(format!("-{}", lines as isize));
+
+	let output = cmd.output().context("failed to capture pane")?;
 
 	if !output.status.success() {
 		return Err(anyhow::anyhow!(

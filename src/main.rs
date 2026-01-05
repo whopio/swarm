@@ -5,6 +5,7 @@ mod model;
 mod notify;
 mod tmux;
 
+use ansi_to_tui::IntoText as _;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveDate, Timelike};
 use clap::{Parser, Subcommand};
@@ -30,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 use tmux::{
-	SWARM_PREFIX, capture_tail, ensure_pipe, find_tmux, kill_session, list_sessions, pane_last_used,
+	SWARM_PREFIX, capture_tail_ansi, ensure_pipe, find_tmux, kill_session, list_sessions, pane_last_used,
 	send_keys, send_special_key, session_path, start_session, start_session_with_mise,
 };
 
@@ -486,27 +487,37 @@ fn handle_new(
 		})
 	});
 
-	// Build Claude flags:
+	// Build Claude command:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
 	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
-	let claude_flags = if auto_accept && agent == "claude" {
-		" --dangerously-skip-permissions".to_string()
-	} else if agent == "claude" {
-		let allowed_tools = format_allowed_tools(&cfg.allowed_tools.tools);
-		format!(" --permission-mode acceptEdits {}", allowed_tools)
-	} else {
-		String::new()
-	};
-
-	let command = match (agent.as_str(), &initial_prompt) {
-		("claude", Some(p)) => {
-			format!("claude{} \"{}\"", claude_flags, p.replace('"', "\\\""))
+	// NOTE: Prompt must come BEFORE --allowedTools because it's a variadic flag that consumes all following args
+	let command = if agent == "claude" {
+		let mut parts = vec!["claude".to_string()];
+		if auto_accept {
+			parts.push("--dangerously-skip-permissions".to_string());
+		} else {
+			parts.push("--permission-mode".to_string());
+			parts.push("acceptEdits".to_string());
 		}
-		("claude", None) => format!("claude{}", claude_flags),
-		("codex", Some(p)) => format!("codex \"{}\"", p.replace('"', "\\\"")),
-		("codex", None) => "codex".to_string(),
-		(other, Some(p)) => format!("{} \"{}\"", other, p.replace('"', "\\\"")),
-		(other, None) => other.to_string(),
+		// Add prompt BEFORE --allowedTools (variadic flag that consumes all following args)
+		if let Some(p) = &initial_prompt {
+			parts.push(format!("\"{}\"", p.replace('"', "\\\"")));
+		}
+		// Add allowedTools LAST since it's variadic
+		if !auto_accept {
+			for tool in &cfg.allowed_tools.tools {
+				parts.push("--allowedTools".to_string());
+				parts.push(format!("\"{}\"", tool));
+			}
+		}
+		parts.join(" ")
+	} else {
+		match (agent.as_str(), &initial_prompt) {
+			("codex", Some(p)) => format!("codex \"{}\"", p.replace('"', "\\\"")),
+			("codex", None) => "codex".to_string(),
+			(other, Some(p)) => format!("{} \"{}\"", other, p.replace('"', "\\\"")),
+			(other, None) => other.to_string(),
+		}
 	};
 
 	// Use mise activation for claude/codex to ensure correct environment (node, ruby, etc.)
@@ -535,18 +546,6 @@ fn handle_new(
 		);
 	}
 	Ok(())
-}
-
-/// Formats the allowed tools list as CLI flags for Claude Code.
-fn format_allowed_tools(tools: &[String]) -> String {
-	if tools.is_empty() {
-		return String::new();
-	}
-	tools
-		.iter()
-		.map(|t| format!("--allowedTools \"{}\"", t))
-		.collect::<Vec<_>>()
-		.join(" ")
 }
 
 fn resolve_repo_path(input: &str) -> Result<PathBuf> {
@@ -944,7 +943,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 		}
 
 		terminal.draw(|f| {
-			let size = f.size();
+			let size = f.area();
 			let vertical = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints([Constraint::Min(3), Constraint::Length(2)].as_ref())
@@ -1145,7 +1144,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 							.unwrap_or_else(|| sel.preview.clone());
 						let cleaned = clean_preview(&preview_lines);
 
-						// Build styled lines, highlighting prompts
+						// Build styled lines with ANSI color support
 						let mut styled_lines: Vec<Line> = Vec::new();
 
 						// Add YOLO warning banner at top if applicable
@@ -1156,16 +1155,13 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 							styled_lines.push(Line::from(""));
 						}
 
-						for line in &cleaned {
-							if is_prompt_line(line) {
-								// Highlight prompt lines in yellow/bold
-								styled_lines.push(Line::from(Span::styled(
-									line.clone(),
-									Style::default()
-										.fg(Color::Yellow)
-										.add_modifier(Modifier::BOLD),
-								)));
-							} else {
+						// Parse ANSI escape sequences to get styled text
+						let combined = cleaned.join("\n");
+						if let Ok(text) = combined.as_bytes().into_text() {
+							styled_lines.extend(text.lines.into_iter());
+						} else {
+							// Fallback to plain text if ANSI parsing fails
+							for line in &cleaned {
 								styled_lines.push(Line::from(line.clone()));
 							}
 						}
@@ -1644,7 +1640,7 @@ Install these commands to ~/.claude/commands/?
 								list_state.select(Some(selected));
 								// Update preview cache for newly selected session
 								if let Some(sel) = sessions.get(selected) {
-									if let Ok(lines) = capture_tail(&sel.session_name, 200) {
+									if let Ok(lines) = capture_tail_ansi(&sel.session_name, 200) {
 										cached_preview = Some((sel.session_name.clone(), lines));
 									}
 								}
@@ -1668,7 +1664,7 @@ Install these commands to ~/.claude/commands/?
 								list_state.select(Some(selected));
 								// Update preview cache for newly selected session
 								if let Some(sel) = sessions.get(selected) {
-									if let Ok(lines) = capture_tail(&sel.session_name, 200) {
+									if let Ok(lines) = capture_tail_ansi(&sel.session_name, 200) {
 										cached_preview = Some((sel.session_name.clone(), lines));
 									}
 								}
@@ -1918,7 +1914,7 @@ Install these commands to ~/.claude/commands/?
 									list_state.select(Some(selected));
 									// Update preview cache for selected session
 									if let Some(sel) = sessions.get(selected) {
-										if let Ok(lines) = capture_tail(&sel.session_name, 200) {
+										if let Ok(lines) = capture_tail_ansi(&sel.session_name, 200) {
 											cached_preview = Some((sel.session_name.clone(), lines));
 										}
 									}
@@ -2017,7 +2013,7 @@ Install these commands to ~/.claude/commands/?
 				sessions = updated;
 				// Update preview cache for selected session
 				if let Some(sel) = sessions.get(selected) {
-					if let Ok(lines) = capture_tail(&sel.session_name, 200) {
+					if let Ok(lines) = capture_tail_ansi(&sel.session_name, 200) {
 						cached_preview = Some((sel.session_name.clone(), lines));
 					}
 				}
@@ -2121,25 +2117,6 @@ fn mark_task_done(task: &TaskEntry, cfg: &Config) -> Result<()> {
 fn delete_task(task: &TaskEntry) -> Result<()> {
 	fs::remove_file(&task.path)?;
 	Ok(())
-}
-
-/// Check if a line looks like a prompt asking for user input
-fn is_prompt_line(line: &str) -> bool {
-	let trimmed = line.trim();
-	if trimmed.is_empty() {
-		return false;
-	}
-	// Common prompt patterns
-	trimmed.contains("[Y/n]")
-		|| trimmed.contains("[y/N]")
-		|| trimmed.contains("[yes/no]")
-		|| trimmed.ends_with('?')
-		|| trimmed.starts_with("> ")
-		|| trimmed.starts_with("? ")
-		|| trimmed.contains("Do you want")
-		|| trimmed.contains("Should I")
-		|| trimmed.contains("Press enter")
-		|| trimmed.contains("waiting for")
 }
 
 fn clean_preview(lines: &[String]) -> Vec<String> {
