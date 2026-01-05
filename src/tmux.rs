@@ -5,6 +5,28 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Get the default tmux socket path for the current user
+#[cfg(unix)]
+fn default_socket_path() -> Option<std::path::PathBuf> {
+	// Get UID from the id command output
+	if let Ok(output) = Command::new("id").arg("-u").output() {
+		if output.status.success() {
+			if let Ok(uid_str) = String::from_utf8(output.stdout) {
+				if let Ok(uid) = uid_str.trim().parse::<u32>() {
+					let socket_dir = std::path::PathBuf::from(format!("/tmp/tmux-{}", uid));
+					return Some(socket_dir.join("default"));
+				}
+			}
+		}
+	}
+	None
+}
+
+#[cfg(not(unix))]
+fn default_socket_path() -> Option<std::path::PathBuf> {
+	None
+}
+
 pub const SWARM_PREFIX: &str = "swarm-";
 
 /// Common tmux installation paths
@@ -48,7 +70,61 @@ fn tmux_cmd() -> Command {
     Command::new(find_tmux())
 }
 
+/// Clean up stale tmux sockets if the server isn't running.
+/// This is needed because tmux commands fail with "no server running on <socket>"
+/// when there's a stale socket file from a crashed server.
+/// After cleanup, subsequent tmux commands (like new-session) will start a fresh server.
+pub fn ensure_server() -> Result<()> {
+	// Try a simple server ping by running `tmux list-sessions`
+	let output = tmux_cmd()
+		.arg("list-sessions")
+		.output();
+
+	match output {
+		Ok(out) if out.status.success() => {
+			// Server is running with sessions, we're good
+			return Ok(());
+		}
+		Ok(out) if out.status.code() == Some(1) => {
+			// Exit code 1 with no stderr about "no server" means server is running but no sessions
+			// This is fine - server is alive
+			let stderr = String::from_utf8_lossy(&out.stderr);
+			if !stderr.contains("no server running") {
+				return Ok(());
+			}
+			// Stale socket detected - clean it up
+			if let Some(socket_path) = default_socket_path() {
+				if socket_path.exists() {
+					let _ = fs::remove_file(&socket_path);
+				}
+			}
+		}
+		Ok(out) => {
+			// Check if error is about no server running (stale socket)
+			let stderr = String::from_utf8_lossy(&out.stderr);
+			if stderr.contains("no server running") {
+				// Clean up stale socket file if it exists
+				if let Some(socket_path) = default_socket_path() {
+					if socket_path.exists() {
+						let _ = fs::remove_file(&socket_path);
+					}
+				}
+			}
+		}
+		Err(_) => {
+			// tmux binary not found or other error, will be handled by subsequent calls
+		}
+	}
+
+	// Don't try to start-server here - it will exit immediately with no sessions.
+	// Let the actual tmux command (new-session, etc.) start the server as needed.
+	Ok(())
+}
+
 pub fn list_sessions() -> Result<Vec<String>> {
+	// Ensure server is running (handles stale sockets)
+	ensure_server()?;
+
 	let output = tmux_cmd()
 		.arg("list-sessions")
 		.arg("-F")
@@ -181,6 +257,9 @@ fn start_session_with_options(
 	command: &str,
 	use_mise: bool,
 ) -> Result<()> {
+	// Ensure server is running (handles stale sockets)
+	ensure_server()?;
+
 	// Wrap command with mise activation if requested
 	// This ensures the agent runs with the correct environment (node, ruby, etc.)
 	let final_command = if use_mise {
