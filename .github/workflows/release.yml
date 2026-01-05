@@ -23,10 +23,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Bump version and create PR
+        id: bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -48,6 +51,7 @@ jobs:
           esac
 
           echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
           # Create branch
           BRANCH="release/v$NEW_VERSION"
@@ -67,14 +71,12 @@ jobs:
           echo "Created PR: $PR_URL"
 
           gh pr merge "$BRANCH" --squash --delete-branch --admin
-          echo "PR merged! Release will be created automatically."
+          echo "PR merged!"
 
-  # Job 2: Check version and release (only for push to main)
+  # Job 2: Check version (only for push to main)
   check-version:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
@@ -105,8 +107,13 @@ jobs:
           fi
 
   build:
-    needs: check-version
-    if: needs.check-version.outputs.should_release == 'true'
+    needs: [bump-version, check-version]
+    # Run if: (dispatch AND bump succeeded) OR (push AND should_release)
+    if: |
+      always() && (
+        (github.event_name == 'workflow_dispatch' && needs.bump-version.result == 'success') ||
+        (github.event_name == 'push' && needs.check-version.outputs.should_release == 'true')
+      )
     strategy:
       matrix:
         include:
@@ -123,6 +130,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main  # Always build from main (includes merged version bump)
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -147,12 +156,22 @@ jobs:
           path: ${{ matrix.binary_name }}
 
   release:
-    needs: [check-version, build]
+    needs: [bump-version, check-version, build]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get version
+        id: get-version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -168,7 +187,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
+          VERSION="${{ steps.get-version.outputs.version }}"
           echo "Creating release v$VERSION"
 
           # Create the release
