@@ -476,14 +476,15 @@ fn handle_new(
 	}
 
 	// Build the command with optional initial prompt (passed as CLI arg, like whop.sh)
-	let initial_prompt = if let Some(task_path) = &task {
-		Some(format!(
-			"Starting task. Read {} for context. Summarize the task before acting.",
-			task_path
-		))
-	} else {
-		prompt.clone()
-	};
+	// Prefer explicit prompt if provided, otherwise build one from task path
+	let initial_prompt = prompt.clone().or_else(|| {
+		task.as_ref().map(|task_path| {
+			format!(
+				"Starting task. Read {} for context. Summarize the task before acting.",
+				task_path
+			)
+		})
+	});
 
 	// Build Claude flags:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
