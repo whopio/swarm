@@ -1135,7 +1135,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.split(chunks[1]);
 
 				// Use cached preview instead of calling tmux on every frame
-				let (preview_lines_styled, details_text, is_yolo_selected) =
+				let (preview_lines_styled, details_text, is_yolo_selected, needs_input_selected) =
 					if let Some(sel) = sessions.get(selected) {
 						let preview_lines = cached_preview
 							.as_ref()
@@ -1173,7 +1173,8 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 						if let Some(pipe_msg) = pipe_status.get(&sel.session_name) {
 							details.push_str(&format!("\nPipe: {pipe_msg}"));
 						}
-						(styled_lines, details, sel.is_yolo)
+						let needs_input = sel.status == AgentStatus::NeedsInput;
+						(styled_lines, details, sel.is_yolo, needs_input)
 					} else if sessions.is_empty() {
 						// Show helpful hint when no agents exist
 						(
@@ -1189,11 +1190,13 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 							],
 							String::from("Get started by creating a new agent or selecting an existing task."),
 							false,
+							false,
 						)
 					} else {
 						(
 							vec![Line::from("No session selected")],
 							String::from("No details available"),
+							false,
 							false,
 						)
 					};
@@ -1204,6 +1207,11 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 						.title("⚠️ Preview (YOLO MODE)")
 						.border_style(Style::default().fg(Color::Red))
 						.title_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+				} else if needs_input_selected {
+					Block::default()
+						.borders(Borders::ALL)
+						.title("Preview (Enter to reply)")
+						.title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
 				} else {
 					Block::default().borders(Borders::ALL).title("Preview")
 				};
