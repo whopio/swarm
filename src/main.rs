@@ -90,6 +90,7 @@ const GITHUB_REPO: &str = "whopio/swarm";
 #[derive(serde::Deserialize)]
 struct GitHubRelease {
 	tag_name: String,
+	body: Option<String>,
 	assets: Vec<GitHubAsset>,
 }
 
@@ -100,7 +101,8 @@ struct GitHubAsset {
 }
 
 /// Check for updates and return the latest version if newer
-fn check_for_update() -> Result<Option<(String, String)>> {
+/// Returns (version, download_url, release_notes)
+fn check_for_update() -> Result<Option<(String, String, Option<String>)>> {
 	let client = reqwest::blocking::Client::builder()
 		.user_agent("swarm-updater")
 		.timeout(Duration::from_secs(10))
@@ -134,7 +136,11 @@ fn check_for_update() -> Result<Option<(String, String)>> {
 
 		for asset in &release.assets {
 			if asset.name.contains(target) {
-				return Ok(Some((latest.to_string(), asset.browser_download_url.clone())));
+				return Ok(Some((
+					latest.to_string(),
+					asset.browser_download_url.clone(),
+					release.body,
+				)));
 			}
 		}
 	}
@@ -147,7 +153,7 @@ fn check_and_install_update() -> Result<()> {
 	println!("Checking for updates...");
 
 	match check_for_update()? {
-		Some((version, url)) => {
+		Some((version, url, release_notes)) => {
 			println!("New version available: v{} (current: v{})", version, CURRENT_VERSION);
 			println!("Downloading update...");
 
@@ -177,6 +183,15 @@ fn check_and_install_update() -> Result<()> {
 			self_replace::self_replace(&temp_path)?;
 			fs::remove_file(&temp_path)?;
 
+			// Save release notes for display on next TUI launch
+			if let Some(notes) = release_notes {
+				if let Some(swarm_dir) = dirs::home_dir().map(|h| h.join(".swarm")) {
+					let _ = fs::create_dir_all(&swarm_dir);
+					let _ = fs::write(swarm_dir.join(".update-notes"), &notes);
+					let _ = fs::write(swarm_dir.join(".just-updated"), format!("v{}", version));
+				}
+			}
+
 			println!("✓ Updated to v{}! Restart swarm to use the new version.", version);
 		}
 		None => {
@@ -188,16 +203,19 @@ fn check_and_install_update() -> Result<()> {
 }
 
 /// Auto-update on startup (runs in background, once per day)
-/// Returns Some(version) if we just updated on a previous run
-fn auto_update_on_startup() -> Option<String> {
+/// Returns Some((version, release_notes)) if we just updated on a previous run
+fn auto_update_on_startup() -> Option<(String, Option<String>)> {
 	let swarm_dir = dirs::home_dir()?.join(".swarm");
 	let just_updated_file = swarm_dir.join(".just-updated");
+	let update_notes_file = swarm_dir.join(".update-notes");
 	let last_check_file = swarm_dir.join(".last-update-check");
 
 	// Check if we just updated (on a previous run)
 	if let Ok(version) = fs::read_to_string(&just_updated_file) {
 		let _ = fs::remove_file(&just_updated_file);
-		return Some(version);
+		let notes = fs::read_to_string(&update_notes_file).ok();
+		let _ = fs::remove_file(&update_notes_file);
+		return Some((version, notes));
 	}
 
 	// Only check once per day
@@ -214,7 +232,7 @@ fn auto_update_on_startup() -> Option<String> {
 		let _ = fs::create_dir_all(&swarm_dir);
 		let _ = fs::write(&last_check_file, "");
 
-		if let Ok(Some((version, url))) = check_for_update() {
+		if let Ok(Some((version, url, release_notes))) = check_for_update() {
 			// Download update
 			let client = reqwest::blocking::Client::builder()
 				.user_agent("swarm-updater")
@@ -236,6 +254,10 @@ fn auto_update_on_startup() -> Option<String> {
 									let _ = fs::remove_file(&temp_path);
 									// Mark that we updated - will show on next run
 									let _ = fs::write(&just_updated_file, format!("v{}", version));
+									// Save release notes for changelog display
+									if let Some(notes) = release_notes {
+										let _ = fs::write(swarm_dir.join(".update-notes"), notes);
+									}
 								}
 							}
 						}
@@ -870,8 +892,14 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut show_help = false;
 	// First-run hooks install prompt
 	let mut show_hooks_prompt = !cfg.general.hooks_installed;
-	// Auto-update on startup (checks once per day, shows "Just updated!" if we updated last run)
-	let just_updated = auto_update_on_startup();
+	// Auto-update on startup (checks once per day, shows changelog if we updated last run)
+	let (just_updated_version, changelog_notes) = auto_update_on_startup()
+		.map(|(v, n)| (Some(v), n))
+		.unwrap_or((None, None));
+	// Show changelog modal if we have release notes from an update
+	let mut show_changelog: Option<(String, String)> = just_updated_version
+		.as_ref()
+		.and_then(|v| changelog_notes.map(|n| (v.clone(), n)));
 	let mut last_refresh = Instant::now();
 	let mut status_message: Option<(String, Instant)> = None;
 	let mut send_input_mode = false;
@@ -1084,9 +1112,11 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 				} else {
 					"Agents".to_string()
 				};
-				// Show "Just updated!" notification in header
-				if let Some(ref version) = just_updated {
-					agents_title = format!("{} │ ✨ Just updated to {}!", agents_title, version);
+				// Show "Just updated!" notification in header (only if no changelog modal)
+				if show_changelog.is_none() {
+					if let Some(ref version) = just_updated_version {
+						agents_title = format!("{} │ ✨ Updated to {}!", agents_title, version);
+					}
 				}
 
 				let list = List::new(items)
@@ -1244,6 +1274,18 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 				f.render_widget(overlay, area);
 			}
 
+			// Changelog modal (shown after update)
+			if let Some((ref version, ref notes)) = show_changelog {
+				let area = centered_rect(70, 80, size);
+				let clear = ratatui::widgets::Clear;
+				f.render_widget(clear, area);
+				let body = format!("{}\n\n─────────────────────────────────────\n         Press any key to continue", notes);
+				let overlay = Paragraph::new(body)
+					.block(Block::default().borders(Borders::ALL).title(format!("✨ Updated to {}", version)))
+					.wrap(Wrap { trim: true });
+				f.render_widget(overlay, area);
+			}
+
 			if send_input_mode {
 				let area = centered_rect(70, 30, size);
 				let clear = ratatui::widgets::Clear;
@@ -1390,6 +1432,11 @@ Install these commands to ~/.claude/commands/?
 							}
 							_ => {}
 						}
+						continue;
+					}
+					// Handle changelog modal - any key dismisses it
+					if show_changelog.is_some() {
+						show_changelog = None;
 						continue;
 					}
 					// Handle send-input mode first to capture typing.

@@ -139,7 +139,7 @@ Sessions are linked to task files in `~/.swarm/tasks/` for context persistence a
 
 ## Updating
 
-Swarm auto-updates in the background. On startup, it checks for updates once per day and installs them automatically. You'll see "✨ Just updated to vX.X.X!" in the header after an update.
+Swarm auto-updates in the background. On startup, it checks for updates once per day and installs them automatically. After an update, you'll see a changelog modal showing what's new - press any key to continue.
 
 To manually check/update:
 

@@ -132,7 +132,7 @@ pub struct General {
 }
 
 fn default_status_style() -> String {
-	"emoji".to_string()
+	"text".to_string()
 }
 
 fn default_branch_prefix() -> String {
