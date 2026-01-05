@@ -89,8 +89,17 @@ swarm update
 | **t** | Switch to tasks view |
 | **s** | Cycle status style |
 | **c** | Open config in Cursor |
+| **l** | Daily logs view |
 | **h** | Help |
 | **q** | Quit |
+
+### Daily Logs View
+
+| Key | Action |
+|-----|--------|
+| **↑/↓** | Navigate |
+| **o** | Open in editor |
+| **Esc** | Back to agents |
 
 ### Tasks View
 
@@ -103,6 +112,18 @@ swarm update
 | **o** | Open in editor |
 | **x** | Delete task |
 | **Esc** | Back to agents |
+
+## tmux Keybindings
+
+When attached to a session (press `a`), swarm uses custom tmux keybindings:
+
+| Key | Action |
+|-----|--------|
+| **Alt+d** | Detach (return to swarm) |
+| **Alt+↑/↓** | Scroll up/down |
+| **Mouse** | Scroll enabled |
+
+Config: `~/.swarm/tmux.conf`
 
 ## How It Works
 

@@ -16,7 +16,7 @@ use crossterm::{
 };
 use detection::{detect_status, detection_for_agent};
 use logs::tail_lines;
-use model::{AgentSession, AgentStatus, TaskEntry, TaskInfo};
+use model::{AgentSession, AgentStatus, DailyEntry, TaskEntry, TaskInfo};
 use ratatui::{
 	prelude::*,
 	text::{Line, Text},
@@ -39,6 +39,7 @@ const HOOK_DONE: &str = include_str!("../hooks/done.md");
 const HOOK_INTERVIEW: &str = include_str!("../hooks/interview.md");
 const HOOK_LOG: &str = include_str!("../hooks/log.md");
 const HOOK_POLL_PR: &str = include_str!("../hooks/poll-pr.md");
+const TMUX_CONF: &str = include_str!("../assets/tmux.conf");
 const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
 const HOOK_WORKTREE: &str = include_str!("../hooks/worktree.md");
 
@@ -65,6 +66,22 @@ fn install_hooks() -> Result<()> {
 	}
 
 	Ok(())
+}
+
+/// Install tmux config to ~/.swarm/tmux.conf
+fn install_tmux_conf() -> Result<PathBuf> {
+	let swarm_dir = dirs::home_dir()
+		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+		.join(".swarm");
+	fs::create_dir_all(&swarm_dir)?;
+	let conf_path = swarm_dir.join("tmux.conf");
+	fs::write(&conf_path, TMUX_CONF)?;
+	Ok(conf_path)
+}
+
+/// Get path to swarm's tmux config
+pub fn tmux_conf_path() -> Option<PathBuf> {
+	dirs::home_dir().map(|h| h.join(".swarm").join("tmux.conf"))
 }
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -752,6 +769,69 @@ fn load_tasks(cfg: &Config) -> Vec<TaskEntry> {
 	tasks
 }
 
+fn load_daily_logs(cfg: &Config) -> Vec<DailyEntry> {
+	let dir = PathBuf::from(&cfg.general.daily_dir);
+	let mut logs = Vec::new();
+	if let Ok(entries) = fs::read_dir(&dir) {
+		for entry in entries.flatten() {
+			let path = entry.path();
+			if !path.is_file() {
+				continue;
+			}
+			if let Some(ext) = path.extension() {
+				if ext != "md" {
+					continue;
+				}
+			} else {
+				continue;
+			}
+			// Parse date from filename (YYYY-MM-DD.md)
+			if let Some(stem) = path.file_stem() {
+				let name = stem.to_string_lossy();
+				if let Ok(date) = chrono::NaiveDate::parse_from_str(&name, "%Y-%m-%d") {
+					// Get first non-empty, non-heading line as preview
+					let preview = fs::read_to_string(&path)
+						.ok()
+						.and_then(|content| {
+							content
+								.lines()
+								.find(|l| {
+									let trimmed = l.trim();
+									!trimmed.is_empty() && !trimmed.starts_with('#')
+								})
+								.map(|s| {
+									let s = s.trim().trim_start_matches("- ");
+									if s.len() > 50 {
+										format!("{}...", &s[..47])
+									} else {
+										s.to_string()
+									}
+								})
+						})
+						.unwrap_or_default();
+					logs.push(DailyEntry { date, path: path.clone(), preview });
+				}
+			}
+		}
+	}
+	// Sort newest first
+	logs.sort_by(|a, b| b.date.cmp(&a.date));
+	logs
+}
+
+fn daily_preview(daily: &DailyEntry, max_lines: usize) -> String {
+	if let Ok(content) = fs::read_to_string(&daily.path) {
+		content
+			.lines()
+			.take(max_lines)
+			.map(|s| s.to_string())
+			.collect::<Vec<_>>()
+			.join("\n")
+	} else {
+		"Unable to read daily log".to_string()
+	}
+}
+
 fn task_preview(task: &TaskEntry, max_lines: usize) -> String {
 	if let Ok(content) = fs::read_to_string(&task.path) {
 		content
@@ -766,6 +846,9 @@ fn task_preview(task: &TaskEntry, max_lines: usize) -> String {
 }
 
 fn run_tui(cfg: &mut Config) -> Result<()> {
+	// Always install/update tmux config for easier keybindings
+	let _ = install_tmux_conf();
+
 	enable_raw_mode()?;
 	let mut stdout_handle = stdout();
 	execute!(stdout_handle, EnterAlternateScreen)?;
@@ -779,7 +862,11 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut tasks = load_tasks(cfg);
 	let mut tasks_state = ListState::default();
 	tasks_state.select(Some(0));
+	let daily_logs = load_daily_logs(cfg);
+	let mut daily_state = ListState::default();
+	daily_state.select(Some(0));
 	let mut showing_tasks = false;
+	let mut showing_daily = false;
 	let mut show_help = false;
 	// First-run hooks install prompt
 	let mut show_hooks_prompt = !cfg.general.hooks_installed;
@@ -834,13 +921,55 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 				.constraints([Constraint::Min(3), Constraint::Length(2)].as_ref())
 				.split(size);
 
-			let (left, right) = if showing_tasks { (45, 55) } else { (35, 65) };
+			let (left, right) = if showing_daily || showing_tasks { (45, 55) } else { (35, 65) };
 			let chunks = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints([Constraint::Percentage(left), Constraint::Percentage(right)].as_ref())
 				.split(vertical[0]);
 
-			if showing_tasks {
+			if showing_daily {
+				// Daily logs view
+				let items: Vec<ListItem> = daily_logs
+					.iter()
+					.map(|d| {
+						let date_str = d.date.format("%Y-%m-%d").to_string();
+						let preview = if d.preview.is_empty() {
+							String::new()
+						} else {
+							format!(" · {}", d.preview)
+						};
+						ListItem::new(Line::from(Span::styled(
+							format!("• {}{}", date_str, preview),
+							Style::default(),
+						)))
+					})
+					.collect();
+				let list_title = "Daily Logs (o=open)".to_string();
+				let list = List::new(items)
+					.block(Block::default().borders(Borders::ALL).title(list_title))
+					.highlight_symbol("▶ ")
+					.highlight_style(
+						Style::default()
+							.add_modifier(Modifier::BOLD | Modifier::REVERSED)
+							.fg(Color::White),
+					);
+				f.render_stateful_widget(list, chunks[0], &mut daily_state);
+
+				let preview_text = if let Some(sel) = daily_state
+					.selected()
+					.and_then(|idx| daily_logs.get(idx))
+				{
+					daily_preview(sel, 100)
+				} else if daily_logs.is_empty() {
+					String::from("No daily logs found\n\nRun /done at end of sessions to log work")
+				} else {
+					String::from("No log selected")
+				};
+				let preview = Paragraph::new(preview_text)
+					.block(Block::default().borders(Borders::ALL).title("Daily Log"))
+					.wrap(Wrap { trim: true });
+				f.render_widget(preview, chunks[1]);
+			} else if showing_tasks {
 				// Build a set of task paths that have active sessions
 				let active_task_paths: HashSet<PathBuf> = sessions
 					.iter()
@@ -1073,7 +1202,9 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 			} else {
 				2
 			};
-			let mut footer_lines = vec![if showing_tasks {
+			let mut footer_lines = vec![if showing_daily {
+				"Esc:back  ↑/↓:nav  o:open".to_string()
+			} else if showing_tasks {
 				tasks_footer_text(size.width)
 			} else if send_input_mode {
 				"Input: type message, Enter send, Esc cancel".to_string()
@@ -1388,9 +1519,18 @@ Install these commands to ~/.claude/commands/?
 						KeyCode::Char('q') if !send_input_mode => break,
 						KeyCode::Char('t') if !send_input_mode => {
 							showing_tasks = !showing_tasks;
+							showing_daily = false;
 							show_help = false;
 							if showing_tasks && tasks_state.selected().is_none() && !tasks.is_empty() {
 								tasks_state.select(Some(0));
+							}
+						}
+						KeyCode::Char('l') if !send_input_mode => {
+							showing_daily = !showing_daily;
+							showing_tasks = false;
+							show_help = false;
+							if showing_daily && daily_state.selected().is_none() && !daily_logs.is_empty() {
+								daily_state.select(Some(0));
 							}
 						}
 						KeyCode::Char('h') if !send_input_mode => {
@@ -1414,6 +1554,9 @@ Install these commands to ~/.claude/commands/?
 							} else if send_input_mode {
 								send_input_mode = false;
 								send_input_buf.clear();
+							} else if showing_daily {
+								// Go back to agents view
+								showing_daily = false;
 							} else if showing_tasks {
 								// Go back to agents view
 								showing_tasks = false;
@@ -1428,7 +1571,13 @@ Install these commands to ~/.claude/commands/?
 							new_agent_buf.clear();
 						}
 						KeyCode::Char('j') | KeyCode::Down => {
-							if showing_tasks {
+							if showing_daily {
+								if let Some(sel) = daily_state.selected() {
+									if sel + 1 < daily_logs.len() {
+										daily_state.select(Some(sel + 1));
+									}
+								}
+							} else if showing_tasks {
 								if let Some(sel) = tasks_state.selected() {
 									if sel + 1 < tasks.len() {
 										tasks_state.select(Some(sel + 1));
@@ -1446,7 +1595,13 @@ Install these commands to ~/.claude/commands/?
 							}
 						}
 						KeyCode::Char('k') | KeyCode::Up => {
-							if showing_tasks {
+							if showing_daily {
+								if let Some(sel) = daily_state.selected() {
+									if sel > 0 {
+										daily_state.select(Some(sel - 1));
+									}
+								}
+							} else if showing_tasks {
 								if let Some(sel) = tasks_state.selected() {
 									if sel > 0 {
 										tasks_state.select(Some(sel - 1));
@@ -1551,6 +1706,20 @@ Install these commands to ~/.claude/commands/?
 									let _ = Command::new("cursor").arg(&task.path).status();
 									status_message = Some((
 										format!("Opened {} in Cursor", task.title),
+										Instant::now(),
+									));
+								}
+							}
+						}
+						KeyCode::Char('o')
+							if showing_daily && !send_input_mode =>
+						{
+							// Open daily log in Cursor
+							if let Some(idx) = daily_state.selected() {
+								if let Some(daily) = daily_logs.get(idx) {
+									let _ = Command::new("cursor").arg(&daily.path).status();
+									status_message = Some((
+										format!("Opened {} in Cursor", daily.date),
 										Instant::now(),
 									));
 								}
@@ -2049,51 +2218,30 @@ fn agent_details(sel: &AgentSession) -> String {
 
 fn help_text() -> String {
 	format!(
-		r#"╭──────────────────────────────────────╮
-│  SWARM - Command your agent fleet   │
-│               v{:<22}│
-╰──────────────────────────────────────╯
+		r#"SWARM v{}
 
-Agents view:
-  enter     send input (quick reply)
-  S-Tab     cycle Claude mode (plan/std/auto)
-  1-9       quick navigate
-  a         attach (full tmux)
-  n         new agent (creates task)
-  d         done (kill session)
-  t         tasks view
-  s         cycle status style
-  c         open config in Cursor
-  q         quit
+Navigation
+  t  tasks       l  daily logs
+  h  help        q  quit
 
-Tasks view:
-  enter     start/resume agent
-  N         force new session
-  Y         ⚠️  YOLO mode (no permissions!)
-  n         new task
-  o         open in Cursor
-  x         delete task
-  Esc       back to agents
-  q         quit
+Agents
+  enter  send input       a  attach tmux
+  S-Tab  cycle mode       n  new agent
+  1-9    quick select     d  kill session
+  s      cycle style      c  open config
 
-Claude commands (run inside agent):
+Claude Slash Commands
   /done       end session, log work
-  /log        save progress to task file
+  /log        save progress to task
   /interview  detailed task planning
-  /worktree   move to isolated git worktree
   /poll-pr    monitor PR until CI passes
-  /qa-swarm   QA test the swarm TUI
+  /worktree   move to isolated git worktree
 
-tmux (when attached):
-  Ctrl-b d  detach (return to swarm)
-  Ctrl-b [  scroll mode (q to exit)
+tmux: Alt+d detach · Alt+↑/↓ scroll
 
-Config: ~/.swarm/config.toml
-  [allowed_tools] - auto-accept safe commands
-
-─────────────────────────────────────
-Built with 🧡 by Whop
-github.com/whopio/swarm"#,
+──────────────────────────────────────
+Voice input: wisprflow.ai/r?JACK4715
+Built with 🧡 by Whop · github.com/whopio/swarm"#,
 		env!("CARGO_PKG_VERSION")
 	)
 }
@@ -2132,6 +2280,17 @@ fn attach_to(
 ) -> Result<()> {
 	// Leave TUI
 	teardown_terminal()?;
+
+	// Source swarm's tmux config to ensure keybindings work
+	if let Some(conf) = tmux_conf_path() {
+		if conf.exists() {
+			let _ = Command::new(find_tmux())
+				.arg("source-file")
+				.arg(&conf)
+				.status();
+		}
+	}
+
 	let status = Command::new(find_tmux())
 		.arg("attach-session")
 		.arg("-t")

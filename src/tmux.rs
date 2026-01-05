@@ -276,7 +276,17 @@ fn start_session_with_options(
 	};
 
 	let tmux_bin = find_tmux();
-	let status = Command::new(tmux_bin)
+	let mut cmd = Command::new(tmux_bin);
+
+	// Use swarm's tmux config for easier keybindings (Ctrl+d to detach, etc.)
+	if let Some(home) = dirs::home_dir() {
+		let conf_path = home.join(".swarm").join("tmux.conf");
+		if conf_path.exists() {
+			cmd.arg("-f").arg(&conf_path);
+		}
+	}
+
+	let status = cmd
 		.arg("new-session")
 		.arg("-d")
 		.arg("-s")

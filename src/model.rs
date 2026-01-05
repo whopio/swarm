@@ -38,3 +38,10 @@ pub struct TaskEntry {
 	pub due: Option<chrono::NaiveDate>,
 	pub status: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct DailyEntry {
+	pub date: chrono::NaiveDate,
+	pub path: PathBuf,
+	pub preview: String, // First non-empty line for list display
+}
