@@ -16,20 +16,19 @@ on:
           - major
 
 jobs:
-  check-version:
+  # Job 1: Bump version via PR (only for manual dispatch)
+  bump-version:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      should_release: ${{ steps.check.outputs.should_release }}
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump version (manual dispatch only)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Bump version and create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Current version: $CURRENT"
@@ -49,13 +48,38 @@ jobs:
           esac
 
           echo "New version: $NEW_VERSION"
+
+          # Create branch
+          BRANCH="release/v$NEW_VERSION"
+          git checkout -b "$BRANCH"
+
+          # Bump version
           sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" Cargo.toml
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml
           git commit -m "Bump version to $NEW_VERSION"
-          git push
+          git push -u origin "$BRANCH"
+
+          # Create and merge PR
+          PR_URL=$(gh pr create --title "Release v$NEW_VERSION" --body "Automated version bump to v$NEW_VERSION" --head "$BRANCH" --base main)
+          echo "Created PR: $PR_URL"
+
+          gh pr merge "$BRANCH" --squash --delete-branch --admin
+          echo "PR merged! Release will be created automatically."
+
+  # Job 2: Check version and release (only for push to main)
+  check-version:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Extract version from Cargo.toml
         id: version
