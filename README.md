@@ -232,3 +232,5 @@ Built with 🧡 by [Whop](https://whop.com)
 ---
 
 *"Don't make me think" - Swarm follows Steve Krug's principles for intuitive UX*
+
+<!-- Test change from jj workspace: 2026-01-05 -->

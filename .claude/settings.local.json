@@ -36,7 +36,15 @@
       "Bash(xargs -I{} sh -c 'echo \"\"=== {} ===\"\" && head -20 \"\"{}\"\"')",
       "Bash(git -C /Users/jacksharkey/Documents/swarm status)",
       "Bash(git -C /Users/jacksharkey/Documents/swarm log --oneline -5)",
-      "Bash(gh release create:*)"
+      "Bash(gh release create:*)",
+      "Bash(jj status:*)",
+      "Bash(jj describe:*)",
+      "Bash(jj config set:*)",
+      "Bash(jj metaedit:*)",
+      "Bash(jj log:*)",
+      "Bash(jj git push:*)",
+      "Bash(jj bookmark:*)",
+      "Bash(jj rebase:*)"
     ]
   }
 }
