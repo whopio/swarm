@@ -15,7 +15,7 @@ User is wrapping up this session. Do the following:
 
 5. **Suggest context updates** - If anything learned should be added to CLAUDE.md or context files, propose where it should go and wait for approval
 
-6. **Clean up worktrees** - Check if there are stale worktrees from completed tasks:
-   - Run `git worktree list` to see active worktrees
-   - For each worktree, check if its PR was merged/closed
-   - Offer to clean up worktrees for merged/closed PRs
+6. **Clean up workspaces** - Check if there are stale jj workspaces from completed tasks:
+   - Check if you're in a jj workspace (path contains `/workspaces/`)
+   - If so, note the workspace path for swarm to clean up automatically
+   - For jj workspaces, swarm handles cleanup when you mark done

@@ -143,7 +143,55 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 4. [ ] Session starts with `--dangerously-skip-permissions`
 5. [ ] YOLO session shows: ⚠️ in agent list, red border on preview, warning banner
 
-### Flow 8: First-Run Onboarding
+### Flow 8: jj Workspace Creation
+**Scenario:** Start new agent with jj workspace isolation
+
+1. [ ] Ensure repo has `.jj` (run `jj git init --colocate` if not)
+2. [ ] Press `n` from agents view
+3. [ ] Type description: "Test workspace feature"
+4. [ ] Tab to workspace field: `[Workspace: ●]` (should be ON by default)
+5. [ ] Press `Space` to toggle OFF, then ON again
+6. [ ] Press `Enter` → agent starts
+7. [ ] Agent shows `[jj]` badge in list (magenta color)
+8. [ ] Workspace created at `~/workspaces/<task-name>`
+
+**Verify:**
+- [ ] Workspace directory exists with `.jj` inside
+- [ ] Agent is running in workspace (check tmux pane path)
+- [ ] Initial prompt mentions "jj workspace" context
+
+### Flow 9: jj Workspace PR Flow
+**Scenario:** Claude in workspace creates a PR
+
+1. [ ] In a jj workspace session, Claude makes code changes
+2. [ ] Claude runs: `jj describe -m "feat: my changes"` (no git add needed)
+3. [ ] Claude runs: `jj rebase -r @ -d main` (skip empty parent)
+4. [ ] Claude runs: `jj bookmark create sharkey11/feature-name`
+5. [ ] Claude runs: `jj git push --bookmark sharkey11/feature-name --allow-new`
+6. [ ] Claude runs: `gh pr create --repo OWNER/REPO --head sharkey11/feature-name --base main`
+
+**Note:** Claude should reference `/workspace` hook for guidance.
+
+### Flow 10: Workspace Cleanup
+**Scenario:** Workspace auto-cleanup on agent done
+
+1. [ ] Select agent with `[jj]` badge
+2. [ ] Press `d` to mark done
+3. [ ] Confirm the done prompt
+4. [ ] Workspace directory at `~/workspaces/<name>` should be deleted
+5. [ ] `jj workspace list` in parent repo shouldn't show the workspace
+
+### Flow 11: Workspace Error Handling
+**Scenario:** Try workspace in git-only repo
+
+1. [ ] Navigate to a repo without `.jj`
+2. [ ] Press `n` to create new agent
+3. [ ] Keep workspace toggle ON
+4. [ ] Press `Enter`
+5. [ ] Should show error: "jj not initialized in <path>. Run: jj git init --colocate"
+6. [ ] Agent should NOT be created
+
+### Flow 12: First-Run Onboarding
 **Scenario:** Test the hooks install prompt
 
 1. [ ] Edit ~/.swarm/config.toml, set `hooks_installed = false`

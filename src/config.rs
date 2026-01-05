@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 const DEFAULT_CONFIG: &str = r#"
 [general]
 default_agent = "claude"
-worktree_dir = "~/worktrees"
+workspace_dir = "~/workspaces"
+workspace_default = true
 poll_interval_ms = 1000
 logs_dir = "~/.swarm/logs"
 tasks_dir = "~/.swarm/tasks"
@@ -70,6 +71,15 @@ tools = [
   "Bash(git merge-base:*)",
   "Bash(git cherry:*)",
   "Bash(git count-objects:*)",
+  # jj (Jujutsu) - read-only
+  "Bash(jj status:*)",
+  "Bash(jj log:*)",
+  "Bash(jj diff:*)",
+  "Bash(jj show:*)",
+  "Bash(jj config get:*)",
+  "Bash(jj config list:*)",
+  "Bash(jj workspace list:*)",
+  "Bash(jj bookmark list:*)",
   # GitHub CLI (read-only)
   "Bash(gh pr view:*)",
   "Bash(gh pr list:*)",
@@ -173,7 +183,12 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
 	pub default_agent: String,
-	pub worktree_dir: String,
+	/// Directory for jj workspaces (renamed from worktree_dir)
+	#[serde(alias = "worktree_dir")]
+	pub workspace_dir: String,
+	/// Whether to create jj workspace by default for new agents
+	#[serde(default = "default_workspace_default")]
+	pub workspace_default: bool,
 	pub poll_interval_ms: u64,
 	pub logs_dir: String,
 	#[serde(default = "default_daily_dir")]
@@ -186,6 +201,10 @@ pub struct General {
 	pub status_style: String, // "emoji", "unicode", "text"
 	#[serde(default)]
 	pub hooks_installed: bool, // Track if we've installed Claude hooks
+}
+
+fn default_workspace_default() -> bool {
+	true
 }
 
 fn default_status_style() -> String {
@@ -265,6 +284,15 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(git merge-base:*)".into(),
 		"Bash(git cherry:*)".into(),
 		"Bash(git count-objects:*)".into(),
+		// jj (Jujutsu) - read-only
+		"Bash(jj status:*)".into(),
+		"Bash(jj log:*)".into(),
+		"Bash(jj diff:*)".into(),
+		"Bash(jj show:*)".into(),
+		"Bash(jj config get:*)".into(),
+		"Bash(jj config list:*)".into(),
+		"Bash(jj workspace list:*)".into(),
+		"Bash(jj bookmark list:*)".into(),
 		// GitHub CLI (read-only)
 		"Bash(gh pr view:*)".into(),
 		"Bash(gh pr list:*)".into(),
@@ -391,7 +419,7 @@ pub fn load_or_init() -> Result<Config> {
 	let content = fs::read_to_string(&config_path)?;
 	let mut cfg: Config = toml::from_str(&content)?;
 	cfg.general.logs_dir = expand_path(&cfg.general.logs_dir);
-	cfg.general.worktree_dir = expand_path(&cfg.general.worktree_dir);
+	cfg.general.workspace_dir = expand_path(&cfg.general.workspace_dir);
 	cfg.general.daily_dir = expand_path(&cfg.general.daily_dir);
 	cfg.general.tasks_dir = expand_path(&cfg.general.tasks_dir);
 	for path in [

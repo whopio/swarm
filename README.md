@@ -73,7 +73,8 @@ swarm update
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
 - **Daily logs** - Browse your daily log files with preview (press `l`)
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /worktree)
+- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /workspace)
+- **jj workspaces** - Instant parallel agent sessions with jj (no git fetch needed)
 
 ## Key Bindings
 
@@ -182,9 +183,73 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/log** - Save progress to the linked task file
 - **/interview** - Detailed task planning before starting
 - **/poll-pr** - Monitor PR until CI passes
-- **/worktree** - Move to isolated git worktree
+- **/workspace** - Move to isolated jj workspace
 
 Hooks are installed to `~/.claude/commands/` on first run.
+
+## jj Workspaces
+
+Instant parallel agent sessions using [jj](https://github.com/martinvonz/jj) workspaces (faster than git worktrees).
+
+### Setup
+
+```bash
+# Install jj
+brew install jj
+
+# Init in your repo (one-time, works alongside git)
+cd your-repo
+jj git init --colocate
+```
+
+### Usage
+
+Press `n` → Tab to `[Workspace: ●]` → Space to toggle → Enter
+
+Sessions with workspaces show `[jj]` badge. Auto-cleans up on done.
+
+### Config
+
+```toml
+# ~/.swarm/config.toml
+workspace_dir = "~/workspaces"
+workspace_default = true
+```
+
+### jj Workflow for PRs
+
+```bash
+# Configure user (one-time)
+jj config set --user user.name "Your Name"
+jj config set --user user.email "you@example.com"
+
+# Make changes, then:
+jj describe -m "your commit message"
+jj rebase -r @ -d main              # Skip empty parent commit
+jj bookmark create sharkey11/feature-name
+jj git push --bookmark sharkey11/feature-name --allow-new
+
+# Create PR (must use --head since not a git repo)
+gh pr create --repo whopio/swarm --head sharkey11/feature-name --base main
+```
+
+### git → jj Cheat Sheet
+
+| What you want | git | jj |
+|---------------|-----|-----|
+| Check status | `git status` | `jj status` |
+| Commit changes | `git add . && git commit -m "msg"` | `jj describe -m "msg"` |
+| View history | `git log` | `jj log` |
+| Create branch | `git checkout -b feature` | `jj bookmark create feature` |
+| Push branch | `git push -u origin feature` | `jj git push --bookmark feature --allow-new` |
+| Switch to main | `git checkout main` | `jj new main` |
+
+**Key difference:** jj auto-tracks all changes. No `git add` needed.
+
+### Learn jj
+
+- [15 min video intro](https://www.youtube.com/watch?v=bx_LGilOuE4)
+- [Official docs](https://jj-vcs.github.io/jj/)
 
 ## Development
 
