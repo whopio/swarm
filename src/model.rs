@@ -22,7 +22,8 @@ pub struct AgentSession {
 	pub log_path: PathBuf,
 	pub preview: Vec<String>,
 	pub task: Option<TaskInfo>,
-	pub is_yolo: bool, // ⚠️ Started with --dangerously-skip-permissions
+	pub is_yolo: bool,           // ⚠️ Started with --dangerously-skip-permissions
+	pub workspace_path: Option<PathBuf>, // Some if running in jj workspace
 }
 
 #[derive(Debug, Clone, Serialize)]
