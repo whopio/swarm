@@ -1,6 +1,6 @@
 [package]
 name = "swarm"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 description = "Terminal dashboard for managing multiple AI coding agents in parallel"
 license = "MIT"
