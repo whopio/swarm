@@ -2610,7 +2610,14 @@ fn start_from_task_with_workspace(cfg: &Config, task: &TaskEntry, workspace: boo
 
 fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, workspace: bool) -> Result<String> {
 	let base_name = slugify(task.title.clone());
-	let session_name = unique_session_name(&base_name)?;
+	// Truncate base name to avoid "file name too long" errors (macOS limit is 255 bytes)
+	// Keep it under 100 chars to leave room for session prefix and other path components
+	let truncated_name = if base_name.len() > 100 {
+		base_name.chars().take(100).collect::<String>()
+	} else {
+		base_name
+	};
+	let session_name = unique_session_name(&truncated_name)?;
 	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
 
 	// Build prompt with additional directories hint if configured
@@ -2622,7 +2629,7 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 			.map(|d| config::expand_path(d))
 			.collect();
 		format!(
-			"\n\nNote: The user's projects are likely in these directories: {}",
+			"\n\nNote: Projects are likely in these directories: {}",
 			dirs.join(", ")
 		)
 	} else {

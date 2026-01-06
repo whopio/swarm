@@ -268,20 +268,28 @@ fn start_session_with_options(
 	command: &str,
 	use_mise: bool,
 ) -> Result<()> {
+	// Check that zsh is available (required for PATH setup and mise activation)
+	if Command::new("which").arg("zsh").output().map(|o| !o.status.success()).unwrap_or(true) {
+		return Err(anyhow::anyhow!(
+			"zsh is required but not found. Install with: brew install zsh (macOS) or apt install zsh (Linux)"
+		));
+	}
+
 	// Ensure server is running (handles stale sockets)
 	ensure_server()?;
 
-	// Wrap command with proper PATH setup for tmux's non-login shell environment
-	// This ensures tools like claude (installed in ~/.claude/local) are available
+	// Build the shell script to run via zsh -c
+	// This sets up PATH for tools like claude (installed in ~/.claude/local)
+	// The command is passed as a separate arg to avoid shell quoting issues
 	let final_command = if use_mise {
 		format!(
-			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; mise trust 2>/dev/null; eval \"$(mise activate zsh 2>/dev/null)\"; exec {}'",
+			"export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; mise trust 2>/dev/null; eval \"$(mise activate zsh 2>/dev/null)\"; exec {}",
 			command
 		)
 	} else {
 		// Even without mise, we need to set up PATH for common tool locations
 		format!(
-			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; exec {}'",
+			"export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; exec {}",
 			command
 		)
 	};
@@ -297,6 +305,8 @@ fn start_session_with_options(
 		}
 	}
 
+	// Use -- to separate tmux options from the shell command
+	// Pass shell and args separately to avoid quote escaping issues
 	let status = cmd
 		.arg("new-session")
 		.arg("-d")
@@ -304,6 +314,9 @@ fn start_session_with_options(
 		.arg(session)
 		.arg("-c")
 		.arg(dir)
+		.arg("--")
+		.arg("zsh")
+		.arg("-c")
 		.arg(&final_command)
 		.status()
 		.with_context(|| format!("failed to start tmux session {} (using {})", session, tmux_bin))?;
