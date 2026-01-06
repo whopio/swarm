@@ -169,6 +169,11 @@ tools = [
   "Bash(sw_vers:*)",
   "Bash(system_profiler:*)",
 ]
+# Directories outside workspace that Claude can access (for bash commands)
+# Example: "~/Documents/whop-monorepo" lets Claude run commands in that directory
+additional_directories = [
+  # "~/Documents/my-project",
+]
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,6 +244,9 @@ pub struct Keybindings {
 pub struct AllowedTools {
 	#[serde(default = "default_allowed_tools")]
 	pub tools: Vec<String>,
+	/// Additional directories Claude can access outside the workspace
+	#[serde(default)]
+	pub additional_directories: Vec<String>,
 }
 
 fn default_allowed_tools() -> Vec<String> {

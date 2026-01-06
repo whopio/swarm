@@ -592,9 +592,18 @@ fn handle_new(
 		];
 		allowed.extend(cfg.allowed_tools.tools.iter().cloned());
 
+		// Expand additional directories (resolve ~ to home)
+		let additional_dirs: Vec<String> = cfg
+			.allowed_tools
+			.additional_directories
+			.iter()
+			.map(|d| config::expand_path(d))
+			.collect();
+
 		let settings_json = serde_json::json!({
 			"permissions": {
-				"allow": allowed
+				"allow": allowed,
+				"additionalDirectories": additional_dirs
 			}
 		});
 
