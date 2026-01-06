@@ -51,7 +51,9 @@
       "Skill(poll-pr)",
       "Bash(gh pr ready:*)",
       "Bash(jj workspace:*)",
-      "Bash(tmux capture-pane:*)"
+      "Bash(tmux capture-pane:*)",
+      "Bash(timeout 30 claude:*)",
+      "Bash(claude --print:*)"
     ]
   }
 }

@@ -584,10 +584,27 @@ fn handle_new(
 		})
 	});
 
-	// Build Claude command:
-	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
-	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
-	// NOTE: Prompt must come BEFORE --allowedTools because it's a variadic flag that consumes all following args
+	// Write .claude/settings.local.json with allowed tools before starting Claude
+	if agent == "claude" && !auto_accept {
+		let mut allowed: Vec<String> = vec![
+			"Read(~/.swarm/tasks/**)".to_string(),
+			format!("Read(/{}/**)", cfg.general.tasks_dir),
+		];
+		allowed.extend(cfg.allowed_tools.tools.iter().cloned());
+
+		let settings_json = serde_json::json!({
+			"permissions": {
+				"allow": allowed
+			}
+		});
+
+		let claude_dir = target_dir.join(".claude");
+		fs::create_dir_all(&claude_dir)?;
+		let settings_path = claude_dir.join("settings.local.json");
+		fs::write(&settings_path, serde_json::to_string_pretty(&settings_json)?)?;
+	}
+
+	// Build Claude command
 	let command = if agent == "claude" {
 		let mut parts = vec!["claude".to_string()];
 		if auto_accept {
@@ -596,21 +613,9 @@ fn handle_new(
 			parts.push("--permission-mode".to_string());
 			parts.push("acceptEdits".to_string());
 		}
-		// Add prompt BEFORE --allowedTools (variadic flag that consumes all following args)
+		// Add prompt
 		if let Some(p) = &initial_prompt {
 			parts.push(format!("\"{}\"", p.replace('"', "\\\"")));
-		}
-		// Add allowedTools LAST since it's variadic
-		// Always allow reading from tasks directory (swarm-specific)
-		// Double quotes protect () and * from shell expansion and work inside zsh -c '...'
-		parts.push("--allowedTools".to_string());
-		parts.push("\"Read(~/.swarm/tasks/**)\"".to_string());
-		parts.push("--allowedTools".to_string());
-		parts.push(format!("\"Read(/{}/**)\"", cfg.general.tasks_dir));
-		// Add user's allowed tools from config
-		for tool in &cfg.allowed_tools.tools {
-			parts.push("--allowedTools".to_string());
-			parts.push(format!("\"{}\"", tool));
 		}
 		parts.join(" ")
 	} else {
