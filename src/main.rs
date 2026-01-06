@@ -501,6 +501,25 @@ fn cleanup_orphans(cfg: &Config, active_sessions: &[String]) {
 			for entry in entries.flatten() {
 				let name = entry.file_name().to_string_lossy().to_string();
 				if !active.contains(&name) {
+					// Clean up jj workspace before removing session metadata
+					let workspace_marker = entry.path().join("workspace");
+					if let Ok(ws_path_str) = fs::read_to_string(&workspace_marker) {
+						let workspace_path = PathBuf::from(ws_path_str.trim());
+						if workspace_path.exists() {
+							// Find parent jj repo and forget workspace
+							if let Some(parent_repo) = find_jj_repo_from_workspace(&workspace_path) {
+								let _ = Command::new("jj")
+									.arg("workspace")
+									.arg("forget")
+									.arg(&workspace_path)
+									.current_dir(&parent_repo)
+									.stderr(Stdio::null())
+									.status();
+							}
+							// Remove workspace directory
+							let _ = fs::remove_dir_all(&workspace_path);
+						}
+					}
 					let _ = fs::remove_dir_all(entry.path());
 				}
 			}
@@ -551,7 +570,28 @@ fn handle_new(
 		if path.exists() {
 			// Check if it's a valid jj workspace
 			if path.join(".jj").exists() {
-				// Valid workspace - just reset to main
+				// Check for uncommitted changes before resetting
+				let status_output = Command::new("jj")
+					.arg("status")
+					.current_dir(&path)
+					.output()
+					.context("failed to check workspace status")?;
+				let has_changes = status_output.status.success()
+					&& !String::from_utf8_lossy(&status_output.stdout)
+						.contains("The working copy has no changes");
+
+				if has_changes {
+					// Save existing changes before starting fresh
+					let _ = Command::new("jj")
+						.arg("describe")
+						.arg("-m")
+						.arg("WIP: auto-saved changes from previous session")
+						.current_dir(&path)
+						.stderr(Stdio::null())
+						.status();
+				}
+
+				// Now safe to create new commit from main
 				let status = Command::new("jj")
 					.arg("new")
 					.arg("main")
