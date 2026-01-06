@@ -1180,18 +1180,21 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 
 		terminal.draw(|f| {
 			let size = f.area();
+
+			// Footer area (always at bottom)
 			let vertical = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints([Constraint::Min(3), Constraint::Length(2)].as_ref())
 				.split(size);
 
-			let (left, right) = if showing_daily || showing_tasks { (45, 55) } else { (35, 65) };
-			let chunks = Layout::default()
+			// Standard split chunks for all views
+			let split_chunks = Layout::default()
 				.direction(Direction::Horizontal)
-				.constraints([Constraint::Percentage(left), Constraint::Percentage(right)].as_ref())
+				.constraints([Constraint::Percentage(45), Constraint::Percentage(55)].as_ref())
 				.split(vertical[0]);
 
 			if showing_daily {
+				let chunks = &split_chunks;
 				// Daily logs view
 				let items: Vec<ListItem> = daily_logs
 					.iter()
@@ -1234,6 +1237,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.wrap(Wrap { trim: true });
 				f.render_widget(preview, chunks[1]);
 			} else if showing_tasks {
+				let chunks = &split_chunks;
 				// Build a set of task paths that have active sessions
 				let active_task_paths: HashSet<PathBuf> = sessions
 					.iter()
@@ -1295,80 +1299,61 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.wrap(Wrap { trim: true });
 				f.render_widget(preview, chunks[1]);
 			} else {
+				// AGENTS VIEW - handle all layout types
 				let current_style = styles[style_idx];
-				let items: Vec<ListItem> = sessions
-					.iter()
-					.enumerate()
-					.map(|(idx, s)| {
-						let (status_text, status_style) = status_indicator(s.status, current_style);
-						let age = s
-							.last_output
-							.and_then(|t| SystemTime::now().duration_since(t).ok())
-							.map(format_human_duration)
-							.unwrap_or_else(|| "–".to_string());
-						let mut spans: Vec<Span> = Vec::new();
-						// Show number for quick access (1-9)
-						if idx < 9 {
-							spans.push(Span::styled(
-								format!("{} ", idx + 1),
-								Style::default().fg(Color::DarkGray),
-							));
-						} else {
-							spans.push(Span::raw("  "));
-						}
-						spans.push(Span::styled(status_text, status_style));
-						spans.push(Span::raw(" "));
-						if s.is_yolo {
-							spans.push(Span::styled(
-								"⚠️ ",
-								Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-							));
-						}
-						if s.workspace_path.is_some() {
-							spans.push(Span::styled(
-								"[jj] ",
-								Style::default().fg(Color::Magenta),
-							));
-						}
-						spans.push(Span::raw(&s.name));
-						spans.push(Span::styled(format!(" · {}", age), Style::default().fg(Color::DarkGray)));
-						if let Some(task) = &s.task {
-							spans.push(Span::raw(" · "));
-							spans.push(Span::raw(&task.title));
-						}
-						if let Some(snippet) = mini_log_preview(&s.preview) {
-							spans.push(Span::styled("  · ", Style::default().fg(Color::DarkGray)));
-							spans.push(Span::styled(snippet, Style::default().fg(Color::DarkGray)));
-						}
-						ListItem::new(Line::from(spans))
-					})
-					.collect();
+				let needs_input_count = sessions.iter().filter(|s| s.status == AgentStatus::NeedsInput).count();
 
-				// Count agents needing input for header
-				let needs_input_count = sessions
-					.iter()
-					.filter(|s| s.status == AgentStatus::NeedsInput)
-					.count();
-				let mut agents_title = if needs_input_count > 0 {
-					format!("Agents ({} need input)", needs_input_count)
-				} else {
-					"Agents".to_string()
-				};
-				// Show "Just updated!" notification in header (only if no changelog modal)
-				if show_changelog.is_none() {
-					if let Some(ref version) = just_updated_version {
-						agents_title = format!("{} │ ✨ Updated to {}!", agents_title, version);
+				// Helper to get preview lines for a session
+				let get_preview_lines = |s: &AgentSession| -> Vec<Line> {
+					let preview_lines = if Some(&s.session_name) == sessions.get(selected).map(|sel| &sel.session_name) {
+						cached_preview.as_ref().filter(|(name, _)| name == &s.session_name).map(|(_, lines)| lines.clone()).unwrap_or_else(|| s.preview.clone())
+					} else {
+						s.preview.clone()
+					};
+					let cleaned = clean_preview(&preview_lines);
+					let mut styled_lines: Vec<Line> = Vec::new();
+					let combined = cleaned.join("\n");
+					if let Ok(text) = combined.as_bytes().into_text() {
+						styled_lines.extend(text.lines.into_iter());
+					} else {
+						for line in &cleaned { styled_lines.push(Line::from(line.clone())); }
 					}
-				}
+					styled_lines
+				};
+
+				// SPLIT: Traditional left/right panels
+				let chunks = Layout::default()
+					.direction(Direction::Horizontal)
+					.constraints([Constraint::Percentage(35), Constraint::Percentage(65)].as_ref())
+					.split(vertical[0]);
+
+				let items: Vec<ListItem> = sessions.iter().enumerate().map(|(idx, s)| {
+					let (status_text, status_style) = status_indicator(s.status, current_style);
+					let age = s.last_output.and_then(|t| SystemTime::now().duration_since(t).ok()).map(format_human_duration).unwrap_or_else(|| "–".to_string());
+					let mut spans: Vec<Span> = Vec::new();
+					if idx < 9 { spans.push(Span::styled(format!("{} ", idx + 1), Style::default().fg(Color::DarkGray))); }
+					else { spans.push(Span::raw("  ")); }
+					spans.push(Span::styled(status_text, status_style));
+					spans.push(Span::raw(" "));
+					if s.is_yolo { spans.push(Span::styled("⚠️ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))); }
+					if s.workspace_path.is_some() { spans.push(Span::styled("[jj] ", Style::default().fg(Color::Magenta))); }
+					spans.push(Span::raw(&s.name));
+					spans.push(Span::styled(format!(" · {}", age), Style::default().fg(Color::DarkGray)));
+					if let Some(task) = &s.task { spans.push(Span::raw(" · ")); spans.push(Span::raw(&task.title)); }
+					if let Some(snippet) = mini_log_preview(&s.preview) {
+						spans.push(Span::styled("  · ", Style::default().fg(Color::DarkGray)));
+						spans.push(Span::styled(snippet, Style::default().fg(Color::DarkGray)));
+					}
+					ListItem::new(Line::from(spans))
+				}).collect();
+
+				let mut agents_title = if needs_input_count > 0 { format!("Agents ({} need input)", needs_input_count) } else { "Agents".to_string() };
+				if show_changelog.is_none() { if let Some(ref version) = just_updated_version { agents_title = format!("{} │ ✨ Updated to {}!", agents_title, version); } }
 
 				let list = List::new(items)
 					.block(Block::default().borders(Borders::ALL).title(agents_title))
 					.highlight_symbol("▶ ")
-					.highlight_style(
-						Style::default()
-							.add_modifier(Modifier::BOLD | Modifier::REVERSED)
-							.fg(Color::White),
-					);
+					.highlight_style(Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED).fg(Color::White));
 				f.render_stateful_widget(list, chunks[0], &mut list_state);
 
 				let right_panes = Layout::default()
@@ -1376,102 +1361,31 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.constraints([Constraint::Min(10), Constraint::Length(8)].as_ref())
 					.split(chunks[1]);
 
-				// Use cached preview instead of calling tmux on every frame
 				let (preview_lines_styled, details_text, is_yolo_selected, needs_input_selected) =
 					if let Some(sel) = sessions.get(selected) {
-						let preview_lines = cached_preview
-							.as_ref()
-							.filter(|(name, _)| name == &sel.session_name)
-							.map(|(_, lines)| lines.clone())
-							.unwrap_or_else(|| sel.preview.clone());
-						let cleaned = clean_preview(&preview_lines);
-
-						// Build styled lines with ANSI color support
-						let mut styled_lines: Vec<Line> = Vec::new();
-
-						// Add YOLO warning banner at top if applicable
-						if sel.is_yolo {
-							styled_lines.push(Line::from("╔══════════════════════════════════════════════════════════╗"));
-							styled_lines.push(Line::from("║  ⚠️  YOLO MODE - NO PERMISSION PROMPTS - BE CAREFUL!  ⚠️  ║"));
-							styled_lines.push(Line::from("╚══════════════════════════════════════════════════════════╝"));
-							styled_lines.push(Line::from(""));
-						}
-
-						// Parse ANSI escape sequences to get styled text
-						let combined = cleaned.join("\n");
-						if let Ok(text) = combined.as_bytes().into_text() {
-							styled_lines.extend(text.lines.into_iter());
-						} else {
-							// Fallback to plain text if ANSI parsing fails
-							for line in &cleaned {
-								styled_lines.push(Line::from(line.clone()));
-							}
-						}
-
+						let lines = get_preview_lines(sel);
+						let mut styled = if sel.is_yolo {
+							vec![Line::from(Span::styled("⚠️ YOLO MODE", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))]
+						} else { Vec::new() };
+						styled.extend(lines);
 						let mut details = agent_details(sel);
-						if let Some(pipe_msg) = pipe_status.get(&sel.session_name) {
-							details.push_str(&format!("\nPipe: {pipe_msg}"));
-						}
-						let needs_input = sel.status == AgentStatus::NeedsInput;
-						(styled_lines, details, sel.is_yolo, needs_input)
+						if let Some(pipe_msg) = pipe_status.get(&sel.session_name) { details.push_str(&format!("\nPipe: {pipe_msg}")); }
+						(styled, details, sel.is_yolo, sel.status == AgentStatus::NeedsInput)
 					} else if sessions.is_empty() {
-						// Show helpful hint when no agents exist
-						(
-							vec![
-								Line::from(""),
-								Line::from(Span::styled(
-									"No agents yet.",
-									Style::default().add_modifier(Modifier::BOLD),
-								)),
-								Line::from(""),
-								Line::from("Press n to create a new agent"),
-								Line::from("Press t to see saved tasks"),
-							],
-							String::from("Get started by creating a new agent or selecting an existing task."),
-							false,
-							false,
-						)
-					} else {
-						(
-							vec![Line::from("No session selected")],
-							String::from("No details available"),
-							false,
-							false,
-						)
-					};
+						(vec![Line::from(""), Line::from(Span::styled("No agents yet.", Style::default().add_modifier(Modifier::BOLD))), Line::from(""), Line::from("Press n to create")], String::from(""), false, false)
+					} else { (vec![Line::from("No session selected")], String::from(""), false, false) };
 
 				let preview_block = if is_yolo_selected {
-					Block::default()
-						.borders(Borders::ALL)
-						.title("⚠️ Preview (YOLO MODE)")
-						.border_style(Style::default().fg(Color::Red))
-						.title_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+					Block::default().borders(Borders::ALL).title("⚠️ Preview (YOLO)").border_style(Style::default().fg(Color::Red)).title_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
 				} else if needs_input_selected {
-					Block::default()
-						.borders(Borders::ALL)
-						.title("Preview (Enter to reply)")
-						.title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-				} else {
-					Block::default().borders(Borders::ALL).title("Preview")
-				};
-
-				// Create paragraph with wrapping to calculate actual visual line count
-				let preview = Paragraph::new(Text::from(preview_lines_styled))
-					.block(preview_block)
-					.wrap(Wrap { trim: true });
-
-				// Calculate scroll offset using actual wrapped line count
-				let preview_height = right_panes[0].height.saturating_sub(2) as usize;
-				let visual_line_count = preview.line_count(right_panes[0].width.saturating_sub(2));
-				let scroll_offset = visual_line_count.saturating_sub(preview_height);
-
-				let preview = preview.scroll((scroll_offset as u16, 0));
-				f.render_widget(preview, right_panes[0]);
-
-				let details = Paragraph::new(details_text)
-					.block(Block::default().borders(Borders::ALL).title("Details"))
-					.wrap(Wrap { trim: true });
-				f.render_widget(details, right_panes[1]);
+					Block::default().borders(Borders::ALL).title("Preview (Enter to reply)").title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+				} else { Block::default().borders(Borders::ALL).title("Preview") };
+				let preview = Paragraph::new(Text::from(preview_lines_styled)).block(preview_block).wrap(Wrap { trim: true });
+				let height = right_panes[0].height.saturating_sub(2) as usize;
+				let line_count = preview.line_count(right_panes[0].width.saturating_sub(2));
+				let scroll = line_count.saturating_sub(height);
+				f.render_widget(preview.scroll((scroll as u16, 0)), right_panes[0]);
+				f.render_widget(Paragraph::new(details_text).block(Block::default().borders(Borders::ALL).title("Details")).wrap(Wrap { trim: true }), right_panes[1]);
 			}
 
 			let footer_height: u16 = if active_status.is_some() || send_input_mode {
@@ -2317,9 +2231,9 @@ Install these commands to ~/.claude/commands/?
 
 fn agents_footer_text(width: u16) -> String {
 	if width < 100 {
-		"A: enter | S-Tab | 1-9 | a | n | d | t | s | c cfg | h | q".to_string()
+		"A: enter | S-Tab | 1-9 | a | n | d | t | s | h | q".to_string()
 	} else {
-		"Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | s style | c config | h | q".to_string()
+		"Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | s style | h | q".to_string()
 	}
 }
 

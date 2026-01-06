@@ -24,6 +24,10 @@ pub fn detection_for_agent(agent: &str) -> DetectionConfig {
 		Regex::new(r"waiting for.*input").unwrap(),
 		// fzf-style prompt
 		Regex::new(r"^\? ").unwrap(),
+		// AskUserQuestion multi-select prompt
+		Regex::new(r"Enter to select.*Tab/Arrow").unwrap(),
+		// AskUserQuestion text input prompt
+		Regex::new(r"Type your answer").unwrap(),
 	];
 
 	let running_threshold = Duration::from_secs(5);
