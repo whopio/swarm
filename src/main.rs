@@ -665,7 +665,36 @@ fn handle_new(
 
 	// Build the command with optional initial prompt (passed as CLI arg, like whop.sh)
 	// Prefer explicit prompt if provided, otherwise build one from task path
-	let jj_note = "Note: You are in a jj workspace. Use `jj` commands instead of `git` (e.g., `jj status`, `jj log`, `jj new`, `jj describe -m \"msg\"`).";
+	let jj_note = if workspace {
+		// Capture jj status and log for context
+		let jj_status = Command::new("jj")
+			.arg("status")
+			.current_dir(&target_dir)
+			.output()
+			.ok()
+			.and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).to_string()) } else { None })
+			.unwrap_or_default();
+		// Get log with graph showing recent history
+		let jj_log = Command::new("jj")
+			.arg("log")
+			.arg("--limit")
+			.arg("10")
+			.current_dir(&target_dir)
+			.output()
+			.ok()
+			.and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).to_string()) } else { None })
+			.unwrap_or_default();
+		format!(
+			"Note: You are in a jj workspace. Use `jj` commands instead of `git` (e.g., `jj status`, `jj log`, `jj new`, `jj describe -m \"msg\"`).{}",
+			if !jj_status.is_empty() || !jj_log.is_empty() {
+				format!("\n\n```\n{}\n{}\n```", jj_status.trim(), jj_log.trim())
+			} else {
+				String::new()
+			}
+		)
+	} else {
+		String::new()
+	};
 	let initial_prompt = prompt.clone().map(|p| {
 		if workspace && !p.contains("jj workspace") {
 			format!("{}\n\n{}", p, jj_note)
