@@ -552,8 +552,14 @@ fn handle_new(
 	};
 	let session = format!("{SWARM_PREFIX}{clean_name}");
 	let repo_path = resolve_repo_path(&repo)?;
-	let (target_dir, workspace_path) = if workspace {
-		// Check for .jj directory - required for jj workspaces
+
+	// Check if this is a jj repo - if so, ALWAYS use a workspace for isolation
+	// This prevents conflicts when multiple agents work on the same repo
+	let is_jj_repo = repo_path.join(".jj").exists();
+	let use_workspace = workspace || is_jj_repo;
+
+	let (target_dir, workspace_path) = if use_workspace {
+		// For jj repos, workspaces are mandatory to prevent conflicts between agents
 		let jj_dir = repo_path.join(".jj");
 		if !jj_dir.exists() {
 			return Err(anyhow::anyhow!(
