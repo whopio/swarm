@@ -204,25 +204,25 @@ jobs:
             echo "$PR_BODY" > release_notes.md
 
             # Add installation instructions at the end
-            cat >> release_notes.md << 'INSTALL'
-
----
-
-## Installation
-
-```bash
-# macOS (Apple Silicon)
-curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-aarch64-apple-darwin -o swarm
-chmod +x swarm && sudo mv swarm /usr/local/bin/
-
-# macOS (Intel)
-curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-x86_64-apple-darwin -o swarm
-chmod +x swarm && sudo mv swarm /usr/local/bin/
-
-# Or update existing installation
-swarm update
-```
-INSTALL
+            {
+              echo ""
+              echo "---"
+              echo ""
+              echo "## Installation"
+              echo ""
+              echo '```bash'
+              echo "# macOS (Apple Silicon)"
+              echo "curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-aarch64-apple-darwin -o swarm"
+              echo "chmod +x swarm && sudo mv swarm /usr/local/bin/"
+              echo ""
+              echo "# macOS (Intel)"
+              echo "curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-x86_64-apple-darwin -o swarm"
+              echo "chmod +x swarm && sudo mv swarm /usr/local/bin/"
+              echo ""
+              echo "# Or update existing installation"
+              echo "swarm update"
+              echo '```'
+            } >> release_notes.md
           else
             echo "No recent PR found, using auto-generated notes"
             echo "See commits for changes." > release_notes.md
