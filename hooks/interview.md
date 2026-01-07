@@ -23,6 +23,7 @@ Read the task file, then ask probing questions using AskUserQuestion. Cover:
 - Use AskUserQuestion with 2-4 options per question
 - Ask 3-4 questions at a time, continue until all areas are covered
 - Dig deeper when answers reveal complexity
+- **Avoid marking options as "(Recommended)"** - present options neutrally to avoid anchoring bias. Only add a recommendation when highly convicted (e.g., clear technical necessity, established codebase pattern). When you do recommend, explain *why* briefly.
 
 ## After interview
 
