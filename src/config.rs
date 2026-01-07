@@ -249,6 +249,20 @@ pub struct AllowedTools {
 	pub additional_directories: Vec<String>,
 }
 
+impl AllowedTools {
+	/// Get all allowed tools (user's config merged with defaults)
+	/// This ensures new default tools are always included without modifying the saved config
+	pub fn get_all_tools(&self) -> Vec<String> {
+		let mut all_tools = self.tools.clone();
+		for tool in default_allowed_tools() {
+			if !all_tools.contains(&tool) {
+				all_tools.push(tool);
+			}
+		}
+		all_tools
+	}
+}
+
 fn default_allowed_tools() -> Vec<String> {
 	vec![
 		// Navigation & filesystem (read-only)
@@ -424,6 +438,10 @@ pub fn load_or_init() -> Result<Config> {
 	if !config_path.exists() {
 		fs::write(&config_path, DEFAULT_CONFIG.trim_start())?;
 	}
+
+	// Migrate config: add missing keys from newer versions
+	migrate_config(&config_path)?;
+
 	let content = fs::read_to_string(&config_path)?;
 	let mut cfg: Config = toml::from_str(&content)?;
 	cfg.general.logs_dir = expand_path(&cfg.general.logs_dir);
@@ -437,6 +455,7 @@ pub fn load_or_init() -> Result<Config> {
 	] {
 		let _ = fs::create_dir_all(Path::new(path));
 	}
+
 	Ok(cfg)
 }
 
@@ -483,5 +502,61 @@ pub fn save_config(cfg: &Config) -> Result<()> {
 	let config_path = base_dir()?.join("config.toml");
 	let content = toml::to_string_pretty(cfg)?;
 	fs::write(&config_path, content)?;
+	Ok(())
+}
+
+/// Migrate config file by adding missing keys from newer versions
+fn migrate_config(config_path: &Path) -> Result<()> {
+	let content = fs::read_to_string(config_path)?;
+
+	// Define migrations: (key_to_check, section, line_to_add)
+	// Each migration checks if a key exists and adds it if missing
+	let migrations: Vec<(&str, &str, &str)> = vec![
+		// v0.1.17: workspace_default for auto jj workspaces
+		(
+			"workspace_default",
+			"[general]",
+			"# Auto-create jj workspace for tasks in jj repos (set to true to enable)\nworkspace_default = false",
+		),
+	];
+
+	let mut modified_content = content.clone();
+	let mut changed = false;
+
+	for (key, section, line_to_add) in migrations {
+		// Check if key already exists as an actual setting (not in a comment)
+		let key_exists = modified_content.lines().any(|line| {
+			let trimmed = line.trim();
+			!trimmed.starts_with('#')
+				&& (trimmed.starts_with(&format!("{} =", key))
+					|| trimmed.starts_with(&format!("{}=", key)))
+		});
+		if key_exists {
+			continue;
+		}
+
+		// Find the section header directly in the content (handles both LF and CRLF)
+		// Look for the section at the start of a line
+		let section_with_newline = format!("\n{}", section);
+		let section_pos = if modified_content.starts_with(section) {
+			Some(0)
+		} else {
+			modified_content.find(&section_with_newline).map(|p| p + 1)
+		};
+
+		if let Some(pos) = section_pos {
+			// Find the next newline after the section header
+			if let Some(newline_pos) = modified_content[pos..].find('\n') {
+				let insert_pos = pos + newline_pos + 1;
+				modified_content.insert_str(insert_pos, &format!("{}\n", line_to_add));
+				changed = true;
+			}
+		}
+	}
+
+	if changed {
+		fs::write(config_path, modified_content)?;
+	}
+
 	Ok(())
 }

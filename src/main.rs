@@ -694,7 +694,7 @@ fn handle_new(
 			"Read(~/.swarm/tasks/**)".to_string(),
 			format!("Read({}/**)", tasks_dir),
 		];
-		allowed.extend(cfg.allowed_tools.tools.iter().cloned());
+		allowed.extend(cfg.allowed_tools.get_all_tools());
 
 		// Expand additional directories (resolve ~ to home)
 		let additional_dirs: Vec<String> = cfg
@@ -2655,6 +2655,12 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 	let session_name = unique_session_name(&truncated_name)?;
 	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
 
+	// Auto-enable workspace for jj repos if user has opted in via workspace_default config
+	// Workspace only works for jj repos - skip silently for non-jj repos
+	let repo_path = PathBuf::from(&repo);
+	let is_jj_repo = repo_path.join(".jj").exists();
+	let use_workspace = is_jj_repo && (workspace || cfg.general.workspace_default);
+
 	// Build prompt with additional directories hint if configured
 	let additional_dirs_note = if !cfg.allowed_tools.additional_directories.is_empty() {
 		let dirs: Vec<String> = cfg
@@ -2682,7 +2688,7 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 		session_name.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		workspace, // Use jj workspace if requested
+		use_workspace, // Auto-enabled for jj repos
 		Some(prompt),
 		Some(task.path.to_string_lossy().into_owned()),
 		auto_accept,
