@@ -80,6 +80,10 @@ tools = [
   "Bash(jj config list:*)",
   "Bash(jj workspace list:*)",
   "Bash(jj bookmark list:*)",
+  "Bash(jj bookmark create:*)",
+  "Bash(jj git push:*)",
+  "Bash(jj new:*)",
+  "Bash(jj describe:*)",
   # GitHub CLI (read-only)
   "Bash(gh pr view:*)",
   "Bash(gh pr list:*)",
@@ -96,6 +100,7 @@ tools = [
   "Bash(gh workflow view:*)",
   "Bash(gh run list:*)",
   "Bash(gh run view:*)",
+  "Bash(gh run watch:*)",
   "Bash(gh label list:*)",
   "Bash(gh search:*)",
   "Bash(gh gist view:*)",
@@ -121,6 +126,11 @@ tools = [
   "Bash(make:*)",
   "Bash(go build:*)",
   "Bash(go test:*)",
+  # Ruby/Rails
+  "Bash(bin/rubocop:*)",
+  "Bash(bin/rspec:*)",
+  "Bash(bin/rails runner:*)",
+  "Bash(bin/test-changes:*)",
   # Docker (read-only)
   "Bash(docker ps:*)",
   "Bash(docker images:*)",
@@ -152,6 +162,9 @@ tools = [
   "Bash(md5sum:*)",
   "Bash(shasum:*)",
   "Bash(sha256sum:*)",
+  # Swarm daily logs
+  "Bash(mkdir -p ~/.swarm/daily:*)",
+  "Bash(cat >> ~/.swarm/daily/:*)",
   # System info (read-only)
   "Bash(echo:*)",
   "Bash(date:*)",
@@ -301,6 +314,10 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(jj config list:*)".into(),
 		"Bash(jj workspace list:*)".into(),
 		"Bash(jj bookmark list:*)".into(),
+		"Bash(jj bookmark create:*)".into(),
+		"Bash(jj git push:*)".into(),
+		"Bash(jj new:*)".into(),
+		"Bash(jj describe:*)".into(),
 		// GitHub CLI (read-only)
 		"Bash(gh pr view:*)".into(),
 		"Bash(gh pr list:*)".into(),
@@ -317,6 +334,7 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(gh workflow view:*)".into(),
 		"Bash(gh run list:*)".into(),
 		"Bash(gh run view:*)".into(),
+		"Bash(gh run watch:*)".into(),
 		"Bash(gh label list:*)".into(),
 		"Bash(gh search:*)".into(),
 		"Bash(gh gist view:*)".into(),
@@ -342,6 +360,11 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(make:*)".into(),
 		"Bash(go build:*)".into(),
 		"Bash(go test:*)".into(),
+		// Ruby/Rails
+		"Bash(bin/rubocop:*)".into(),
+		"Bash(bin/rspec:*)".into(),
+		"Bash(bin/rails runner:*)".into(),
+		"Bash(bin/test-changes:*)".into(),
 		// Docker (read-only)
 		"Bash(docker ps:*)".into(),
 		"Bash(docker images:*)".into(),
@@ -373,6 +396,9 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(md5sum:*)".into(),
 		"Bash(shasum:*)".into(),
 		"Bash(sha256sum:*)".into(),
+		// Swarm daily logs
+		"Bash(mkdir -p ~/.swarm/daily:*)".into(),
+		"Bash(cat >> ~/.swarm/daily/:*)".into(),
 		// System info (read-only)
 		"Bash(echo:*)".into(),
 		"Bash(date:*)".into(),
