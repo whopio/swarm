@@ -1905,6 +1905,21 @@ Install these commands to ~/.claude/commands/?
 								attach_to(&mut terminal, sel)?;
 							}
 						}
+						KeyCode::Char('g')
+							if !showing_tasks && !showing_daily && !send_input_mode =>
+						{
+							// Open lazygit for selected agent's workspace
+							if let Some(sel) = sessions.get(selected) {
+								match open_lazygit_for_session(sel) {
+									Ok(msg) => {
+										status_message = Some((msg, Instant::now()));
+									}
+									Err(e) => {
+										status_message = Some((e, Instant::now()));
+									}
+								}
+							}
+						}
 						KeyCode::Char('x')
 							if showing_tasks && !send_input_mode =>
 						{
@@ -2231,9 +2246,9 @@ Install these commands to ~/.claude/commands/?
 
 fn agents_footer_text(width: u16) -> String {
 	if width < 100 {
-		"A: enter | S-Tab | 1-9 | a | n | d | t | s | h | q".to_string()
+		"A: enter | S-Tab | 1-9 | a | g | n | d | t | s | h | q".to_string()
 	} else {
-		"Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | s style | h | q".to_string()
+		"Agents: enter | S-Tab mode | 1-9 | a attach | g lazygit | n new | d done | t tasks | s style | h | q".to_string()
 	}
 }
 
@@ -2455,6 +2470,7 @@ Agents
   S-Tab  cycle mode       n  new agent
   1-9    quick select     d  kill session
   s      cycle style      c  open config
+  g      lazygit
 
 Claude Slash Commands
   /done       end session, log work
@@ -2463,7 +2479,7 @@ Claude Slash Commands
   /poll-pr    monitor PR until CI passes
   /workspace  move to isolated jj workspace
 
-tmux: Alt+d detach · Alt+↑/↓ scroll
+tmux: Alt+d detach · Alt+g lazygit · Alt+↑/↓ scroll
 
 ──────────────────────────────────────
 Voice input: wisprflow.ai/r?JACK4715
@@ -2532,6 +2548,48 @@ fn attach_to(
 	execute!(stdout_handle, EnterAlternateScreen)?;
 	*terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout_handle))?;
 	Ok(())
+}
+
+/// Open lazygit in a new tmux window for the given agent session's workspace
+fn open_lazygit_for_session(session: &AgentSession) -> Result<String, String> {
+	// Check workspace_path exists
+	let workspace_path = session
+		.workspace_path
+		.as_ref()
+		.ok_or_else(|| "No workspace for this session".to_string())?;
+
+	// Check path exists on disk
+	if !workspace_path.exists() {
+		return Err("Workspace path not found".to_string());
+	}
+
+	// Check lazygit binary exists
+	let which_result = Command::new("which")
+		.arg("lazygit")
+		.output()
+		.map_err(|e| format!("Failed to check for lazygit: {e}"))?;
+
+	if !which_result.status.success() {
+		return Err("lazygit not found - install with `brew install lazygit`".to_string());
+	}
+
+	// Open lazygit in new tmux window
+	let window_name = format!("lazygit-{}", session.name);
+	let lazygit_cmd = format!("lazygit -p {}", workspace_path.display());
+
+	let status = Command::new(find_tmux())
+		.arg("new-window")
+		.arg("-n")
+		.arg(&window_name)
+		.arg(&lazygit_cmd)
+		.status()
+		.map_err(|e| format!("Failed to open lazygit: {e}"))?;
+
+	if !status.success() {
+		return Err(format!("tmux new-window failed: {status}"));
+	}
+
+	Ok(format!("Opened lazygit for {}", session.name))
 }
 
 fn teardown_terminal() -> Result<()> {
