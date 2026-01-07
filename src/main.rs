@@ -2242,7 +2242,7 @@ fn tasks_footer_text(width: u16) -> String {
 		"T: enter | N new | n new task | Y⚠️ yolo | Esc back | h | q"
 			.to_string()
 	} else {
-		"Tasks: enter/N start | n new task | Y⚠️ yolo | o Obsidian | x del | Esc back | h help | q"
+		"Tasks: enter/N start | n new task | Y⚠️ yolo | o open | x del | Esc back | h help | q"
 			.to_string()
 	}
 }
@@ -2462,6 +2462,10 @@ Claude Slash Commands
   /interview  detailed task planning
   /poll-pr    monitor PR until CI passes
   /workspace  move to isolated jj workspace
+
+jj Workspaces (requires jj git init --colocate)
+  New agent: Tab to [Workspace] field, Space to enable
+  Config: workspace_default = true in ~/.swarm/config.toml
 
 tmux: Alt+d detach · Alt+↑/↓ scroll
 

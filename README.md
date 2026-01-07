@@ -191,30 +191,52 @@ Hooks are installed to `~/.claude/commands/` on first run.
 
 Instant parallel agent sessions using [jj](https://github.com/martinvonz/jj) workspaces (faster than git worktrees).
 
-### Setup
+### Why jj?
+
+- **Instant workspace creation** - No fetch/clone needed, workspaces are instant
+- **Parallel agents** - Each agent works in isolation, no merge conflicts
+- **Auto-tracked changes** - No `git add` needed, jj tracks everything
+- **Clean history** - Easy to rebase and squash before PRs
+
+### Setup (One-Time)
 
 ```bash
-# Install jj
+# 1. Install jj
 brew install jj
 
-# Init in your repo (one-time, works alongside git)
+# 2. Init in your repo (works alongside git)
 cd your-repo
 jj git init --colocate
+
+# 3. Configure user (for commits)
+jj config set --user user.name "Your Name"
+jj config set --user user.email "you@example.com"
 ```
 
-### Usage
+### Opting In
 
-Press `n` → Tab to `[Workspace: ●]` → Space to toggle → Enter
+**Per-agent:** When creating a new agent, press Tab to the `[Workspace: ○]` field, then Space to enable it. The indicator changes to `●` when enabled.
 
-Sessions with workspaces show `[jj]` badge. Auto-cleans up on done.
+```
+╭─ New Agent ─────────────────────────────────╮
+│ Task: fix auth bug                          │
+│ Repo: ~/code/myproject                      │
+│ [Workspace: ●]  (Space to toggle)           │  ← Toggle here
+╰─────────────────────────────────────────────╯
+```
 
-### Config
+**Make it the default:** Set `workspace_default = true` in your config:
 
 ```toml
 # ~/.swarm/config.toml
+[general]
 workspace_dir = "~/workspaces"
-workspace_default = true
+workspace_default = true  # New agents use jj workspaces by default
 ```
+
+**Mid-session migration:** If you started without a workspace and need isolation, use the `/workspace` command inside your agent session. This creates a workspace and moves your work there.
+
+Sessions with workspaces show `[jj]` badge. Auto-cleans up on done.
 
 ### jj Workflow for PRs
 
