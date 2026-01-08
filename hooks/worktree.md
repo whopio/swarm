@@ -17,8 +17,8 @@ When the user confirms they want a worktree, run the following commands:
 ### Step 1: Get session info
 
 ```bash
-# Get the current session name from the task file or working directory
-pwd
+# Get the tmux session name (needed for saving worktree path)
+tmux display-message -p '#S'
 ```
 
 ### Step 2: Create the worktree
@@ -36,7 +36,17 @@ git worktree add ~/worktrees/{worktree-name} -b {branch-name} origin/main
 cd ~/worktrees/{worktree-name}
 ```
 
-### Step 3: Confirm setup
+### Step 3: Save worktree path for TUI
+
+This is **required** for the `[wt]` badge to appear in swarm:
+
+```bash
+# Replace {session-name} with the tmux session name from Step 1
+mkdir -p ~/.swarm/sessions/{session-name}
+echo ~/worktrees/{worktree-name} > ~/.swarm/sessions/{session-name}/worktree
+```
+
+### Step 4: Confirm setup
 
 After creating the worktree, tell the user:
 - The worktree path: `~/worktrees/{worktree-name}`

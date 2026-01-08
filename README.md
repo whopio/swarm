@@ -213,13 +213,10 @@ If you say yes, Claude calls `/worktree` which:
 
 Sessions with worktrees show `[wt]` badge.
 
-### Configuration
+### Notes
 
-```toml
-# ~/.swarm/config.toml
-[general]
-worktree_dir = "~/worktrees"  # Where worktrees are created
-```
+- Worktrees are created at `~/worktrees/{task-name}` by default
+- Branch naming: `{branch_prefix}/{task-slug}` (branch_prefix from config)
 
 ### Worktree Workflow for PRs
 
