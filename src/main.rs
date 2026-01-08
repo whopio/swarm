@@ -1,5 +1,6 @@
 mod config;
 mod detection;
+mod inbox;
 mod logs;
 mod model;
 mod notify;
@@ -1001,7 +1002,37 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	daily_state.select(Some(0));
 	let mut showing_tasks = false;
 	let mut showing_daily = false;
+	let mut showing_inbox = false;
 	let mut show_help = false;
+	// Inbox state
+	let inbox_storage = inbox::storage::InboxStorage::new(&config::base_dir().unwrap_or_default()).ok();
+	// Try to load from storage first, then fetch from iMessage if empty
+	let mut inbox_items: Vec<inbox::InboxItem> = inbox_storage
+		.as_ref()
+		.and_then(|s| s.list_items().ok())
+		.unwrap_or_default();
+	// If no stored items, try to fetch from iMessage
+	if inbox_items.is_empty() {
+		let imsg_path = dirs::home_dir()
+			.map(|h| h.join(".swarm/bin/imsg"))
+			.unwrap_or_default();
+		if imsg_path.exists() {
+			let source = inbox::sources::imessage::IMessageSource::new(imsg_path);
+			if let Ok(items) = source.fetch_recent(5, 2) {
+				inbox_items = items;
+				// Save to storage for persistence
+				if let Some(ref storage) = inbox_storage {
+					for item in &inbox_items {
+						let _ = storage.save_item(item);
+					}
+				}
+			}
+		}
+	}
+	let mut inbox_state = ListState::default();
+	if !inbox_items.is_empty() {
+		inbox_state.select(Some(0));
+	}
 	// First-run hooks install prompt
 	let mut show_hooks_prompt = !cfg.general.hooks_installed;
 	// Always install/update hooks on startup (they're small, ensures latest version)
@@ -1176,6 +1207,67 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					.block(Block::default().borders(Borders::ALL).title("Task Preview"))
 					.wrap(Wrap { trim: true });
 				f.render_widget(preview, chunks[1]);
+			} else if showing_inbox {
+				let chunks = &split_chunks;
+				// Inbox view
+				let items: Vec<ListItem> = inbox_items
+					.iter()
+					.map(|item| {
+						let icon = "📱"; // TODO: get from source
+						let time = inbox::format_time_ago(item.timestamp);
+						let read_indicator = if item.read { " " } else { "●" };
+						let style = if item.read {
+							Style::default().fg(Color::DarkGray)
+						} else {
+							Style::default()
+						};
+						ListItem::new(vec![
+							Line::from(Span::styled(
+								format!("{} {} {} • {}", read_indicator, icon, item.sender_label(), time),
+								style,
+							)),
+							Line::from(Span::styled(
+								format!("   {}", item.preview(50)),
+								style.add_modifier(Modifier::DIM),
+							)),
+						])
+					})
+					.collect();
+				let unread_count = inbox_items.iter().filter(|i| !i.read).count();
+				let list_title = if unread_count > 0 {
+					format!("Inbox ({} unread)", unread_count)
+				} else {
+					"Inbox".to_string()
+				};
+				let list = List::new(items)
+					.block(Block::default().borders(Borders::ALL).title(list_title))
+					.highlight_symbol("▶ ")
+					.highlight_style(
+						Style::default()
+							.add_modifier(Modifier::BOLD | Modifier::REVERSED)
+							.fg(Color::White),
+					);
+				f.render_stateful_widget(list, chunks[0], &mut inbox_state);
+
+				let preview_text = if let Some(sel) = inbox_state
+					.selected()
+					.and_then(|idx| inbox_items.get(idx))
+				{
+					format!(
+						"From: {}\nTime: {}\n\n{}",
+						sel.sender_label(),
+						sel.timestamp.format("%b %d, %l:%M %p"),
+						sel.content
+					)
+				} else if inbox_items.is_empty() {
+					String::from("No messages in inbox\n\nInbox is not yet configured.\nPress Enter to set up iMessage integration.")
+				} else {
+					String::from("No message selected")
+				};
+				let preview = Paragraph::new(preview_text)
+					.block(Block::default().borders(Borders::ALL).title("Message"))
+					.wrap(Wrap { trim: true });
+				f.render_widget(preview, chunks[1]);
 			} else {
 				// AGENTS VIEW - handle all layout types
 				let current_style = styles[style_idx];
@@ -1275,6 +1367,8 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 				"Esc:back  ↑/↓:nav  o:open".to_string()
 			} else if showing_tasks {
 				tasks_footer_text(size.width)
+			} else if showing_inbox {
+				inbox_footer_text(size.width)
 			} else if send_input_mode {
 				"Input: type message, Enter send, Esc cancel".to_string()
 			} else {
@@ -1611,6 +1705,7 @@ Install these commands to ~/.claude/commands/?
 						KeyCode::Char('t') if !send_input_mode => {
 							showing_tasks = !showing_tasks;
 							showing_daily = false;
+							showing_inbox = false;
 							show_help = false;
 							if showing_tasks && tasks_state.selected().is_none() && !tasks.is_empty() {
 								tasks_state.select(Some(0));
@@ -1619,9 +1714,19 @@ Install these commands to ~/.claude/commands/?
 						KeyCode::Char('l') if !send_input_mode => {
 							showing_daily = !showing_daily;
 							showing_tasks = false;
+							showing_inbox = false;
 							show_help = false;
 							if showing_daily && daily_state.selected().is_none() && !daily_logs.is_empty() {
 								daily_state.select(Some(0));
+							}
+						}
+						KeyCode::Char('i') if !send_input_mode => {
+							showing_inbox = !showing_inbox;
+							showing_tasks = false;
+							showing_daily = false;
+							show_help = false;
+							if showing_inbox && inbox_state.selected().is_none() && !inbox_items.is_empty() {
+								inbox_state.select(Some(0));
 							}
 						}
 						KeyCode::Char('h') if !send_input_mode => {
@@ -1651,6 +1756,9 @@ Install these commands to ~/.claude/commands/?
 							} else if showing_tasks {
 								// Go back to agents view
 								showing_tasks = false;
+							} else if showing_inbox {
+								// Go back to agents view
+								showing_inbox = false;
 							}
 							show_help = false;
 						}
@@ -1672,6 +1780,12 @@ Install these commands to ~/.claude/commands/?
 								if let Some(sel) = tasks_state.selected() {
 									if sel + 1 < tasks.len() {
 										tasks_state.select(Some(sel + 1));
+									}
+								}
+							} else if showing_inbox {
+								if let Some(sel) = inbox_state.selected() {
+									if sel + 1 < inbox_items.len() {
+										inbox_state.select(Some(sel + 1));
 									}
 								}
 							} else if selected + 1 < sessions.len() {
@@ -1698,6 +1812,12 @@ Install these commands to ~/.claude/commands/?
 										tasks_state.select(Some(sel - 1));
 									}
 								}
+							} else if showing_inbox {
+								if let Some(sel) = inbox_state.selected() {
+									if sel > 0 {
+										inbox_state.select(Some(sel - 1));
+									}
+								}
 							} else if selected > 0 {
 								selected -= 1;
 								list_state.select(Some(selected));
@@ -1714,7 +1834,30 @@ Install these commands to ~/.claude/commands/?
 								&& !send_input_mode
 								&& !confirm_kill_mode =>
 						{
-							if let Some(sel) = sessions.get(selected) {
+							if showing_inbox {
+								// Dismiss selected inbox item
+								if let Some(sel_idx) = inbox_state.selected() {
+									if let Some(item) = inbox_items.get(sel_idx) {
+										let item_id = item.id.clone();
+										// Delete from storage
+										if let Some(ref storage) = inbox_storage {
+											let _ = storage.delete_item(&item_id);
+										}
+										// Remove from in-memory list
+										inbox_items.remove(sel_idx);
+										// Update selection
+										if inbox_items.is_empty() {
+											inbox_state.select(None);
+										} else if sel_idx >= inbox_items.len() {
+											inbox_state.select(Some(inbox_items.len() - 1));
+										}
+										status_message = Some((
+											"Dismissed message".to_string(),
+											Instant::now(),
+										));
+									}
+								}
+							} else if let Some(sel) = sessions.get(selected) {
 								// Show confirmation instead of immediately killing
 								confirm_kill_mode = true;
 								pending_kill_session = Some(sel.session_name.clone());
@@ -2100,6 +2243,14 @@ fn tasks_footer_text(width: u16) -> String {
 	}
 }
 
+fn inbox_footer_text(width: u16) -> String {
+	if width < 100 {
+		"I: ↑/↓:nav | d:dismiss | Esc:back | h | q".to_string()
+	} else {
+		"Inbox: ↑/↓ navigate | d dismiss | Esc back | h help | q quit".to_string()
+	}
+}
+
 #[allow(dead_code)] // May be useful if we re-add filtering later
 fn task_matches_filter(task: &TaskEntry, filter: &str) -> bool {
 	if filter.trim().is_empty() {
@@ -2301,7 +2452,8 @@ fn help_text() -> String {
 
 Navigation
   t  tasks       l  daily logs
-  h  help        q  quit
+  i  inbox       h  help
+  q  quit
 
 Agents
   enter  send input       a  attach tmux
