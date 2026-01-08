@@ -534,6 +534,9 @@ fn handle_new(
 	if let Some(task_path) = &task {
 		let marker = session_task_path(&session)?;
 		fs::write(&marker, task_path)?;
+		// Also write .claude-task to repo root so Claude can find it after context compaction
+		let claude_task_marker = target_dir.join(".claude-task");
+		fs::write(&claude_task_marker, format!("{}\n", task_path))?;
 	}
 
 	{
@@ -555,7 +558,7 @@ fn handle_new(
 	}).or_else(|| {
 		task.as_ref().map(|task_path| {
 			format!(
-				"Starting task. Read {} for context. Summarize the task before acting.{}",
+				"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.{}",
 				task_path,
 				worktree_note
 			)
